@@ -17,12 +17,12 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('..'))
 
-import profasta
+import protfasta
 
 
 # -- Project information -----------------------------------------------------
 
-project = 'profasta'
+project = 'protfasta'
 copyright = ("2020, Alex Holehouse. Project structure based on the "
              "Computational Molecular Science Python Cookiecutter version 1.1")
 author = 'Alex Holehouse'
@@ -117,7 +117,7 @@ html_static_path = ['_static']
 # -- Options for HTMLHelp output ---------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'profastadoc'
+htmlhelp_basename = 'protfastadoc'
 
 
 # -- Options for LaTeX output ------------------------------------------------
@@ -144,8 +144,8 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'profasta.tex', 'profasta Documentation',
-     'profasta', 'manual'),
+    (master_doc, 'protfasta.tex', 'protfasta Documentation',
+     'protfasta', 'manual'),
 ]
 
 
@@ -154,7 +154,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'profasta', 'profasta Documentation',
+    (master_doc, 'protfasta', 'protfasta Documentation',
      [author], 1)
 ]
 
@@ -165,8 +165,8 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'profasta', 'profasta Documentation',
-     author, 'profasta', 'A hyper robuts FASTA parser explicitly for protein sequences',
+    (master_doc, 'protfasta', 'protfasta Documentation',
+     author, 'protfasta', 'A hyper robuts FASTA parser explicitly for protein sequences',
      'Miscellaneous'),
 ]
 

@@ -1,0 +1,45 @@
+"""
+protfasta.py
+A hyper robuts FASTA parser explicitly for protein sequences
+
+Handles the primary functions
+"""
+
+from . import io, utilities
+from . protfasta_exceptions import ProtFastaException
+
+
+####################################################################################################
+#
+#
+
+    
+def read_fasta(filename, 
+               expect_unique=True,
+               header_parser=None,
+               sequence_validate=False,
+               sequence_convert=False,
+               return_list=False)
+               
+    
+    raw = io.parse_fasta_file(filename, expect_unique, parse_header, return_list)
+
+    if sequence_validate:
+        utilities.validate_sequences(raw)
+    
+
+    if sequence_convert:
+        final = utilities.convert_sequences(raw)
+    else:
+        final = raw
+
+    return final
+        
+        
+
+
+
+
+if __name__ == "__main__":
+    # Do something if this file is invoked on its own
+    pass

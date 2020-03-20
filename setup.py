@@ -1,5 +1,5 @@
 """
-profasta
+protfasta
 A hyper robuts FASTA parser explicitly for protein sequences
 """
 import sys
@@ -21,7 +21,7 @@ except:
 
 setup(
     # Self-descriptive entries which should always be present
-    name='profasta',
+    name='protfasta',
     author='Alex Holehouse',
     author_email='alex.holehouse@wustl.edu',
     description=short_description[0],
@@ -30,6 +30,7 @@ setup(
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
     license='MIT',
+    python_requires='>=3.7',
 
     # Which Python importable modules should be included when your package is installed
     # Handled automatically by setuptools. Use 'exclude' to prevent some specific

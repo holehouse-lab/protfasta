@@ -1,4 +1,4 @@
 Getting Started
 ===============
 
-This page details how to get started with profasta. 
+This page details how to get started with protfasta. 

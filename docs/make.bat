@@ -9,7 +9,7 @@ if "%SPHINXBUILD%" == "" (
 )
 set SOURCEDIR=.
 set BUILDDIR=_build
-set SPHINXPROJ=profasta
+set SPHINXPROJ=protfasta
 
 if "%1" == "" goto help
 

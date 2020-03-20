@@ -1,12 +1,12 @@
 """
-Unit and regression test for the profasta package.
+Unit and regression test for the protfasta package.
 """
 
 # Import package, test suite, and other packages as needed
-import profasta
+import protfasta
 import pytest
 import sys
 
-def test_profasta_imported():
+def test_protfasta_imported():
     """Sample test, will always pass so long as import statement worked"""
-    assert "profasta" in sys.modules
+    assert "protfasta" in sys.modules

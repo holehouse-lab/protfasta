@@ -1,8 +1,8 @@
-profasta
+protfasta
 ==============================
 [//]: # (Badges)
-[![Travis Build Status](https://travis-ci.com/REPLACE_WITH_OWNER_ACCOUNT/profasta.svg?branch=master)](https://travis-ci.com/REPLACE_WITH_OWNER_ACCOUNT/profasta)
-[![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/profasta/branch/master/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/profasta/branch/master)
+[![Travis Build Status](https://travis-ci.com/REPLACE_WITH_OWNER_ACCOUNT/protfasta.svg?branch=master)](https://travis-ci.com/REPLACE_WITH_OWNER_ACCOUNT/protfasta)
+[![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/protfasta/branch/master/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/protfasta/branch/master)
 
 A hyper robuts FASTA parser explicitly for protein sequences
 

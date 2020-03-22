@@ -9,6 +9,7 @@ STANDARD_CONVERSION = {'B':'N',
                        'Z':'Q',
                        '*':'',
                        '-':''}
+
 STANDARD_AAS = ['A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y']
 
 
@@ -37,7 +38,7 @@ def build_custom_dictionary(additional_dictionary):
 ####################################################################################################
 #
 #    
-def convert_to_valid(seq, additional_dictionary=None):
+def convert_to_valid(seq, correction_dictionary=None):
     """
     Function that converts non-standard amino acid residues to standard ones.
     Specifically:
@@ -66,56 +67,136 @@ def convert_to_valid(seq, additional_dictionary=None):
         
     """
 
-    if additional_dictionary:
+    if correction_dictionary:
         converter = additional_dictionary
     else:
         converter = STANDARD_CONVERSION
 
     # cycle over each key in the converter dictionary and replace all values in
     # the sequence with the corresponding converted one 
-    if i in converter:
+    for i in converter:
         seq = seq.replace('%s'%(i), converter[i])
 
     return seq
 
 
+
+####################################################################################################
+#
+#    
 def check_sequence_is_valid(seq):
     s = list(set(seq))
     for i in s:
         if i not in STANDARD_AAS:
-            return False
-    return True
+            return (False, i)
+    return (True, 0)
 
 
 
-def convert_sequences(dataset):
+####################################################################################################
+#
+#    
+def convert_invalid_sequences(dataset, correction_dictionary=None):
 
+    count = 0
     for idx in range(0,len(dataset)):
         s = dataset[idx][1]
-        dataset[idx][1] = convert_to_valid(s)
+        dataset[idx][1] = convert_to_valid(s, correction_dictionary)
         
-    return dataset
+        if s != dataset[idx][1]:
+            count = count + 1
+        
+    return (dataset, count)
 
 
-def ecluded_invalid_sequence(dataset):
+
+####################################################################################################
+#
+#    
+def exclude_invalid_sequences(dataset):
 
     # this single line iterates through the dataset, and for each sequence only
     # only adds to to the growing new list IF that sequence is valid
-    return [element for element in dataset if check_sequence_is_valid(element[1])]
-            
+    return [element for element in dataset if check_sequence_is_valid(element[1])[0]]
+     
 
-def fail_on_invalid_sequence(dataset):
+       
+####################################################################################################
+#
+#    
+def fail_on_invalid_sequences(dataset):
 
     # cycle over each entry and fail if a sequence is invald!
     for entry in dataset:
-        if check_sequence_is_valid(entry[1]) is not True:
-            ProtfastaException('Failed on invalid sequence:\n%s\n%s\n' % (entry[0],entry[1]))
+        (status, info) = check_sequence_is_valid(entry[1])
+        if status is not True:
+            raise ProtfastaException('Failed on invalid amino acid: %s\nTaken from entry...\n>%s\n%s\n' % (info, entry[0],entry[1]))
 
-            
 
+
+####################################################################################################
+#
+#    
 def convert_list_to_dictionary(raw_list):
     return_dict={}
     for entry in raw_list:
         return_dict[entry[0]] = entry[1]
 
     return return_dict
+
+
+
+####################################################################################################
+#
+#    
+def fail_on_duplicate(dataset):
+    lookup={}
+    for entry in dataset:
+        if entry[0] not in lookup:
+            lookup[entry[0]] = entry[1]
+        else:
+            if lookup[entry[0]] == entry[1]:
+                raise ProtfastaException('Found duplicate entries of the following record\n:>%s\n%s' % (entry[0], entry[1]))
+
+
+
+####################################################################################################
+#
+#    
+def remove_duplicates(dataset):
+
+
+    # note - the lookup dictionary is ONLY used to keep track of what we have/have not
+    # yet seen and is not returned. The updated list will be returned
+    lookup={}
+    updated = []
+
+    # for each entry in the dataset
+    for entry in dataset:
+
+        # if we've never seen this header - add it to the lookup dictionary
+        # as an entry in a list. This means multiple entries can have the same header (which
+        # we're saying is OK)
+        if entry[0] not in lookup:
+            lookup[entry[0]] = [entry[1]]
+            updated.append(entry)
+
+        # however, if we HAVE seen this header before..
+        else:
+            found_dupe = False
+            
+            # for each sequence associated wth that header
+            # ask if we found a duplicate 
+            for d in lookup[entry[0]]:
+                if d == entry[1]:
+                    found_dupe=True
+
+            # if we found no duplicates add
+            if not found_dupe:
+                lookup[entry[0]].append(entry[1])
+                updated.append(entry)
+
+    return updated
+
+        
+                

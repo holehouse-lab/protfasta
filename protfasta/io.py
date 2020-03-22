@@ -1,27 +1,132 @@
 """
-io.py
+protfasta - A simple but robuts FASTA parser explicitly for protein sequences.
 
+This file handles the input and output, including validation of input arguments
 
+.............................................................................
+protfasta was developed by the Holehouse lab
+     Original release March 2020
+
+Question/comments/concerns? Raise an issue on github:
+https://github.com/holehouse-lab/protfasta
+
+Licensed under the MIT license.
+
+Be kind to each other. 
 
 """
 
-
 from .protfasta_exceptions import ProtfastaException
+
+
+def check_inputs(expect_unique, header_parser, invalid_sequence, return_list, output_filename, verbose):
+    """
+    Function that performs sanity validation for all input arguments. If arguments do not match the expected
+    behaviour then this function will throw an exception.
+
+    If new functionality is included, input must be santitized in this function!
+
+    Parameters
+    ------------
+    expect unique : ?
+        Checks it's a bool
+
+    header_parser : ?
+        Checks it's a callable function that returns a single string (and takes a single
+        string as the input argument)
+
+    invalid_sequence : ?
+        Checks it's a string that matches a specific keyword
+
+    return_list : ?
+        Checks it's a bool
+
+    output_filename : ?
+        Checks it's a string
+
+    verbose : ?
+        Checks it's a bool
+
+    Returns
+    ---------
+
+        No return - stateless function that checks things are OK
+    
+    """
+
+    # check the expect_unique keyword
+    if type(expect_unique) != bool:
+        raise ProtfastaException("keyword 'expect_unique' must be a boolean")
+
+
+    # validate the header_parser 
+    if header_parser is not None:
+        if not callable(header_parser):
+            raise ProtfastaException("keyword 'header_parser' must be a function [tested with callable()]")
+        
+        try:
+            a = header_parser('this test string should work')
+            if type(a) != str:
+                raise Exception
+        except Exception:
+            raise ProtfastaException('Something went wrong when testing the header_parser function.\nEnsure that the test example works and that the function returns a string [type str]')
+
+    # check the invalid_sequence 
+    if invalid_sequence not in ['ignore','fail','exclude','convert']:
+        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail','exclude','convert'")
+
+    # check the return_list
+    if type(return_list) != bool:
+        raise ProtfastaException("keyword 'verbose' must be a boolean")
+
+    # check the return_list
+    if output_filename is not None:
+        if type(output_filename) != str:
+            raise ProtfastaException("keyword 'output_filename' must be a string")
+
+    if type(verbose) != bool:
+        raise ProtfastaException("keyword 'verbose' must be a boolean")
+
+
+    # now sanity check combinations
+
 
 
 ####################################################################################################
 #
 #    
-def parse_fasta_file(filename, expect_unique=True, header_parser=None, return_list=False, verbose=False):
+def internal_parse_fasta_file(filename, expect_unique=True, header_parser=None, verbose=False):
     """
     Base level FASTA file parser. Header lines must begin with a ">" and be a single line. 
     No other requirements are necessary.
+
+    This is not the function that we expect users to use, but if they wanted to they could.
 
     Parameters
     ------------
 
     filename : string
-        String representing the absolute or relative path of a 
+        String representing the absolute or relative path of a FASTA file.
+
+
+    expect_unique : boolean {True}
+        Should the function expect each header to be unique? In general this is true for FASTA files, 
+        but this is strictly not guarenteed. 
+
+
+    header_parser : function {None}
+        header_parser is a user-defined function that will be fed the FASTA header and whatever it returns
+        will be used as the actual header as the files are parsed. This can be useful if you know your FASTA
+        header has a consistent format that you want to take advantage of.
+
+        A function provided here MUST:
+            1. Take a single input argument (the header string)
+            2. Return a single string
+
+
+    verbose : boolean {False}
+        If set to True, protfasta will print out information as it works its way through reading and
+        parsing FASTA files. This can be useful for diagnosis.
 
 
     Returns
@@ -42,14 +147,14 @@ def parse_fasta_file(filename, expect_unique=True, header_parser=None, return_li
         print('Read in file with %i lines'%(len(content)))
 
     # note, we'll keep the ability to directly parse dictionaries
-    return _parse_fasta_all(content, 'list', header_parser, expect_unique)
+    return _parse_fasta_all(content, 'list', expect_unique=expect_unique, header_parser=header_parser, verbose=verbose)
     
 
 
 ####################################################################################################
 #
 #    
-def _parse_fasta_all(content, mode, header_parser=None, expect_unique=True):
+def _parse_fasta_all(content, mode, expect_unique=True, header_parser=None, verbose=False):
     
     # --------------------------------------------------------------
     ## Define local functions if we want to return a dictionary
@@ -122,6 +227,10 @@ def _parse_fasta_all(content, mode, header_parser=None, expect_unique=True):
     if len(seq) > 0:
         check_duplicate()
         update()
+
+    if verbose:
+        print('Parsed file to recover %i sequences' %(len(return_data)))
+
 
     return return_data
 

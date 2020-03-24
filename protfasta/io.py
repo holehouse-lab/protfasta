@@ -19,7 +19,14 @@ Be kind to each other.
 from .protfasta_exceptions import ProtfastaException
 
 
-def check_inputs(expect_unique, header_parser, invalid_sequence, return_list, output_filename, verbose):
+def check_inputs(expect_unique_header, 
+                 header_parser, 
+                 duplicate_record_action, 
+                 duplicate_sequence_action,
+                 invalid_sequence_action, 
+                 return_list, 
+                 output_filename, 
+                 verbose):
     """
     Function that performs sanity validation for all input arguments. If arguments do not match the expected
     behaviour then this function will throw an exception.
@@ -34,6 +41,12 @@ def check_inputs(expect_unique, header_parser, invalid_sequence, return_list, ou
     header_parser : ?
         Checks it's a callable function that returns a single string (and takes a single
         string as the input argument)
+
+    duplicate_record_action : ?
+        Checks its a string that matches one of a specific set of keywords
+
+    duplicate_sequence_action : ?
+        Checks its a string that matches one of a specific set of keywords
 
     invalid_sequence : ?
         Checks it's a string that matches a specific keyword
@@ -54,9 +67,9 @@ def check_inputs(expect_unique, header_parser, invalid_sequence, return_list, ou
     
     """
 
-    # check the expect_unique keyword
-    if type(expect_unique) != bool:
-        raise ProtfastaException("keyword 'expect_unique' must be a boolean")
+    # check the expect_unique_header keyword
+    if type(expect_unique_header) != bool:
+        raise ProtfastaException("keyword 'expect_unique_header' must be a boolean")
 
 
     # validate the header_parser 
@@ -71,9 +84,18 @@ def check_inputs(expect_unique, header_parser, invalid_sequence, return_list, ou
         except Exception:
             raise ProtfastaException('Something went wrong when testing the header_parser function.\nEnsure that the test example works and that the function returns a string [type str]')
 
+    # check the duplicates_record_action 
+    if duplicate_record_action not in ['ignore','fail','remove']:
+        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail','remove'")
+
+    # check the duplicates_record_action 
+    if duplicate_sequence_action not in ['ignore','fail','remove']:
+        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail', 'remove'")
+
+
     # check the invalid_sequence 
-    if invalid_sequence not in ['ignore','fail','exclude','convert']:
-        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail','exclude','convert'")
+    if invalid_sequence_action not in ['ignore','fail','remove','convert']:
+        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail','remove','convert'")
 
     # check the return_list
     if type(return_list) != bool:
@@ -87,15 +109,18 @@ def check_inputs(expect_unique, header_parser, invalid_sequence, return_list, ou
     if type(verbose) != bool:
         raise ProtfastaException("keyword 'verbose' must be a boolean")
 
+    if duplicate_record_action is 'ignore':
+        if expect_unique_header is True:
+            raise ProtfastaException('Cannot expect unique headers and ignore duplicate records')
 
-    # now sanity check combinations
+
 
 
 
 ####################################################################################################
 #
 #    
-def internal_parse_fasta_file(filename, expect_unique=True, header_parser=None, verbose=False):
+def internal_parse_fasta_file(filename, expect_unique_header=True, header_parser=None, verbose=False):
     """
     Base level FASTA file parser. Header lines must begin with a ">" and be a single line. 
     No other requirements are necessary.
@@ -109,10 +134,9 @@ def internal_parse_fasta_file(filename, expect_unique=True, header_parser=None, 
         String representing the absolute or relative path of a FASTA file.
 
 
-    expect_unique : boolean {True}
+    expect_unique_header : boolean {True}
         Should the function expect each header to be unique? In general this is true for FASTA files, 
         but this is strictly not guarenteed. 
-
 
     header_parser : function {None}
         header_parser is a user-defined function that will be fed the FASTA header and whatever it returns
@@ -141,27 +165,27 @@ def internal_parse_fasta_file(filename, expect_unique=True, header_parser=None, 
         with open(filename,'r') as fh:
             content = fh.readlines()
     except FileNotFoundError:
-        raise ProtFastaException('Unable to find file: %s'%(filename))
+        raise ProtfastaException('Unable to find file: %s'%(filename))
     
     if verbose:
         print('Read in file with %i lines'%(len(content)))
 
     # note, we'll keep the ability to directly parse dictionaries
-    return _parse_fasta_all(content, 'list', expect_unique=expect_unique, header_parser=header_parser, verbose=verbose)
+    return _parse_fasta_all(content, 'list', expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose)
     
 
 
 ####################################################################################################
 #
 #    
-def _parse_fasta_all(content, mode, expect_unique=True, header_parser=None, verbose=False):
+def _parse_fasta_all(content, mode, expect_unique_header=True, header_parser=None, verbose=False):
     
     # --------------------------------------------------------------
     ## Define local functions if we want to return a dictionary
     if mode == 'dict':
         def check_duplicate():
             if header in return_data:
-                raise ProtFastaException('Found non-unique FASTA header [%s]'%(header))
+                raise ProtfastaException('Found non-unique FASTA header [%s]'%(header))
 
         def update():
             return_data[header] = seq.upper()
@@ -172,9 +196,9 @@ def _parse_fasta_all(content, mode, expect_unique=True, header_parser=None, verb
     elif mode == 'list':
         ## Define local functions if we want to return a dictionary        
         def check_duplicate():
-            if expect_unique:
+            if expect_unique_header:
                 if header in all_headers:
-                    raise ProtFastaException('Found non-unique FASTA header [%s]'%(header))
+                    raise ProtfastaException('Found non-unique FASTA header [%s]'%(header))
 
         def update():
             return_data.append([header,seq.upper()])

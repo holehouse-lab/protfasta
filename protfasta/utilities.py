@@ -113,7 +113,7 @@ def convert_invalid_sequences(dataset, correction_dictionary=None):
 ####################################################################################################
 #
 #    
-def exclude_invalid_sequences(dataset):
+def remove_invalid_sequences(dataset):
 
     # this single line iterates through the dataset, and for each sequence only
     # only adds to to the growing new list IF that sequence is valid
@@ -137,10 +137,22 @@ def fail_on_invalid_sequences(dataset):
 ####################################################################################################
 #
 #    
-def convert_list_to_dictionary(raw_list):
-    return_dict={}
-    for entry in raw_list:
-        return_dict[entry[0]] = entry[1]
+def convert_list_to_dictionary(raw_list, verbose=False):
+
+    if verbose:
+        return_dict={}
+        warning_count=0
+        for entry in raw_list:
+            if entry[0] in return_dict:
+                warning_count=warning_count+1
+                print('Warning - overwriting entry [count = %i]'%(warning_count))
+            return_dict[entry[0]] = entry[1]
+        print('NOTE: If you want to avoid overwriting duplicate headers set return_list=True')
+            
+    else:
+        return_dict={}
+        for entry in raw_list:
+            return_dict[entry[0]] = entry[1]
 
     return return_dict
 
@@ -149,7 +161,7 @@ def convert_list_to_dictionary(raw_list):
 ####################################################################################################
 #
 #    
-def fail_on_duplicate(dataset):
+def fail_on_duplicates(dataset):
     lookup={}
     for entry in dataset:
         if entry[0] not in lookup:
@@ -199,4 +211,35 @@ def remove_duplicates(dataset):
     return updated
 
         
+
+####################################################################################################
+#
+#    
+def fail_on_duplicate_sequences(dataset):    
+    seq_to_header={}
+    for entry in dataset:
+        if entry[1] in seq_to_header:
+            raise ProtfastaException('Found duplicate sequences associated with the following headers\n1. %s\n\n2. %s' % (seq_to_header[entry[1]], entry[0]))
+        seq_to_header[entry[1]] = entry[0]
+
+
+
+####################################################################################################
+#
+#    
+def remove_duplicate_sequences(dataset):    
+    seqlist=[]
+    updated=[]
+    for entry in dataset:
+        if entry[1] in seqlist:
+            continue
+        else:
+            seqlist.append(entry[1])
+            updated.append(entry)
+    return updated
+            
+
+    
+                
+
                 

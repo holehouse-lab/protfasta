@@ -21,10 +21,11 @@ from . import io, utilities
 from .protfasta_exceptions import ProtfastaException
     
 def read_fasta(filename, 
-               expect_unique=True,
+               expect_unique_header=True,
                header_parser=None,
-               duplicate_action='remove',
-               invalid_sequence='fail',
+               duplicate_sequence_action='ignore',
+               duplicate_record_action='fail',
+               invalid_sequence_action='fail',
                return_list=False,               
                output_filename=None,
                correction_dictionary=None,
@@ -53,16 +54,17 @@ def read_fasta(filename,
 
     There is an order of options in which sanitization occurs:
 
-        1. File is read in
+        1. File is read in (and unique headers are tested for HERE)
 
-        2. Duplicates removed (optional)
+        2. Check for duplicate records and respond appropriately (optional)
+
+        3. Check for duplicate sequences and respond appropriately (optional)
     
-        3. Invalid sequences dealt with (optional)
+        4. Invalid sequences dealt with (optional)
 
-        4. Final set of sequences/headers written to a new FASTA file (optional)
-
+        5. Final set of sequences/headers written to a new FASTA file (optional)
     
-        5. Dictionary/list returned to user.
+        6. Dictionary/list returned to user.
 
     Understanding there is a specific order is important when considering what options to
     pass. If a set of options are incompatible, this will be caught before the file is read.
@@ -73,7 +75,7 @@ def read_fasta(filename,
     Parameters
     ---------------
 
-    expect_unique : boolean {True}
+    expect_unique_header : boolean {True}
         Should the function expect each header to be unique? In general this is true for FASTA files, 
         but this is strictly not guarenteed. If this is set to True and a duplicate header is found
         then this means an error will be thrown. If it's set to false duplicate headers are dealt with,
@@ -96,10 +98,10 @@ def read_fasta(filename,
 
         So ensure 
 
-    duplicate_action : string {'ignore'}
-        Selector that determines how to deal with duplicate entries. Note that duplicates here refers to
-        entries in the fasta file where both the sequence and the header are identical. duplicate_action
-        is only relevant keyword when expect_unique is False.
+    duplicate_record_action : string {'ignore'}
+        Selector that determines how to deal with duplicate entries. Note that duplicate records refers to
+        entries in the fasta file where both the sequence and the header are identical. duplicate_record_action
+        is only relevant keyword when expect_unique_header is False.
 
         Options are as follows:        
             'ignore'   : duplicate entries are allowed and ignored
@@ -109,14 +111,27 @@ def read_fasta(filename,
             'remove'   : duplicate entries are removed, so there's only one copy of any duplicates
     
 
-    invalid_sequence :  string {'fail'}
+    duplicate_sequence_action : string {'ignore'}
+        Selector that determines how to deal with duplicate sequences. This completely ignores the header
+        and simply asks is two sequences are duplicated (or not). 
+
+
+        Options are as follows:        
+            'ignore'   : duplicate sequences are allowed and ignored
+
+            'fail'     : duplicate sequences cause parsing to fail
+
+            'remove'   : duplicate sequences are removed, guarenteeing that 
+    
+
+    invalid_sequence_action :  string {'fail'}
         Selector that determines how to deal with invalid sequences. Options are as follows:
 
             'ignore'   : invalid sequences are completely ignored
 
             'fail'     : invalid sequence cause parsing to fail
 
-            'exclude'  : invalid sequences are excluded
+            'remove'  : invalid sequences are removed
 
             'convert'  : invalid sequences are converted to valid sequences (assuming the invalid
 
@@ -164,27 +179,32 @@ def read_fasta(filename,
     
     # first we sanity check all of the inputs provided. NOTE. If additional functionality is added, new
     # keywords MUST be sanity checked in this function
-    io.check_inputs(expect_unique,
+    io.check_inputs(expect_unique_header,
                     header_parser, 
-                    invalid_sequence, 
+                    duplicate_record_action,
+                    duplicate_sequence_action,
+                    invalid_sequence_action, 
                     return_list, 
                     output_filename,
                     verbose)
 
     # the actual file i/o happens here
-    raw = io.internal_parse_fasta_file(filename, expect_unique=expect_unique, header_parser=header_parser, verbose=verbose)
+    raw = io.internal_parse_fasta_file(filename, expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose)
 
-    # first deal with duplicate entries
-    updated = _deal_with_duplicates(raw, duplicate_action, correction_dictionary)
+    # first deal with duplicate records
+    updated = _deal_with_duplicate_records(raw, duplicate_record_action, correction_dictionary)
+
+    # deal with duplicate sequences
+    updated = _deal_with_duplicate_sequences(updated, duplicate_sequence_action, verbose)
 
     # next decide how we deal with invalid amino acid sequences
-    updated = _deal_with_invalid_sequences(raw, invalid_sequence, verbose)
+    updated = _deal_with_invalid_sequences(updated, invalid_sequence_action, verbose)
 
     # finally, if we wanted to write the final set of sequences we're going to use...:
     if return_list:
         return updated
     else:
-        return utilities.convert_list_to_dictionary(updated)
+        return utilities.convert_list_to_dictionary(updated, verbose)
         return updated
         
 
@@ -287,24 +307,24 @@ def write_fasta(fasta_data, filename, linelength=60, verbose=False):
 ####################################################################################################
 #
 #
-def _deal_with_invalid_sequences(raw, invalid_sequence='fail', verbose=False, correction_dictionary=None):
+def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', verbose=False, correction_dictionary=None):
 
     # fail on an invalid sequence
-    if invalid_sequence == 'fail':
+    if invalid_sequence_action == 'fail':
         utilities.fail_on_invalid_sequences(raw)
         return raw
 
-    # simply exclude invalid sequences
-    if invalid_sequence == 'exclude':
-        updated = utilities.exclude_invalid_sequences(raw)
+    # simply remove invalid sequences
+    if invalid_sequence_action == 'remove':
+        updated = utilities.remove_invalid_sequences(raw)
         
         if verbose:
-            print('Excluded %i of %i due to sequences with invalid characters' % (len(raw) - len(updated), len(raw)))
+            print('Removed %i of %i due to sequences with invalid characters' % (len(raw) - len(updated), len(raw)))
 
         return updated
 
     # convert invalid sequences
-    if invalid_sequence == 'convert':
+    if invalid_sequence_action == 'convert':
         (updated, count) = utilities.convert_invalid_sequences(raw, correction_dictionary)
         if verbose:
             print('Converted %i sequences to valid sequences'%(count))
@@ -318,28 +338,51 @@ def _deal_with_invalid_sequences(raw, invalid_sequence='fail', verbose=False, co
         return updated
 
     # ignore invalid sequences
-    if invalid_sequence == 'ignore':
+    if invalid_sequence_action == 'ignore':
         return raw
         
-    raise ProtfastaException("Invalid option passed to the selector 'invalid_sequence': %s" %(invalid_sequence))
+    raise ProtfastaException("Invalid option passed to the selector 'invalid_sequence_action': %s" %(invalid_sequence_action))
 
 
 
 ####################################################################################################
 #
 #
-def _deal_with_duplicates(raw, duplicate_action='ignore', verbose=False):
+def _deal_with_duplicate_records(raw, duplicate_record_action='ignore', verbose=False):
 
+    if duplicate_record_action == 'ignore':
+        pass
 
-    if duplicate_action == 'ignore':
-        return raw
-
-    if duplicate_action == 'fail':
+    if duplicate_record_action == 'fail':
         utilities.fail_on_duplicates(raw)
-        return raw
 
-    if duplicate_action == 'remove':
+    if duplicate_record_action == 'remove':
         updated = utilities.remove_duplicates(raw)
+        if verbose:
+            print('Removed %i of %i due to duplicate records ' % (len(raw) - len(updated), len(raw)))
+        return updated
+
+    return raw
+
+
+
+####################################################################################################
+#
+#
+def _deal_with_duplicate_sequences(raw, duplicate_sequence_action='ignore', verbose=False):
+
+
+    if duplicate_sequence_action == 'ignore':
+        pass
+
+    if duplicate_sequence_action == 'fail':
+        utilities.fail_on_duplicate_sequences(raw)
+        
+    if duplicate_sequence_action == 'remove':
+        updated = utilities.remove_duplicate_sequences(raw)
+        if verbose:
+            print('Removed %i of %i due to duplicate sequences ' % (len(raw) - len(updated), len(raw)))
+        return updated
 
     return raw
 

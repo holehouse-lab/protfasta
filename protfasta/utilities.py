@@ -1,16 +1,8 @@
 from .protfasta_exceptions import ProtfastaException
 
+from ._configs import STANDARD_CONVERSION, STANDARD_AAS
 
 
-
-STANDARD_CONVERSION = {'B':'N',
-                       'U':'C',
-                       'X':'G',
-                       'Z':'Q',
-                       '*':'',
-                       '-':''}
-
-STANDARD_AAS = ['A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y']
 
 
 
@@ -145,9 +137,12 @@ def convert_list_to_dictionary(raw_list, verbose=False):
         for entry in raw_list:
             if entry[0] in return_dict:
                 warning_count=warning_count+1
-                print('Warning - overwriting entry [count = %i]'%(warning_count))
+                print('[WARNING]: Overwriting entry [count = %i]'%(warning_count))
             return_dict[entry[0]] = entry[1]
-        print('NOTE: If you want to avoid overwriting duplicate headers set return_list=True')
+        if warning_count > 0:
+            print('[INFO] If you want to avoid overwriting duplicate headers set return_list=True')
+        else:
+            print('[INFO]: All processed sequences uniquely added to the returning dictionary')
             
     else:
         return_dict={}

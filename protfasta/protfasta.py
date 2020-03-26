@@ -17,7 +17,9 @@ Be kind to each other.
 
 """
 
-from . import io, utilities
+
+from . import io as _io
+from . import utilities as _utilities
 from .protfasta_exceptions import ProtfastaException
     
 def read_fasta(filename, 
@@ -133,7 +135,11 @@ def read_fasta(filename,
 
             'remove'  : invalid sequences are removed
 
-            'convert'  : invalid sequences are converted to valid sequences (assuming the invalid
+            'convert'  : invalid sequences are converted to valid sequences, and any remaining
+                         invalid residues will then trigger an exception
+
+            'convert-ignore'  : invalid sequences are converted to valid sequences and any remaining
+                                invalid residues are ignored.
 
         By default it fails (which is the safest option).
 
@@ -179,7 +185,7 @@ def read_fasta(filename,
     
     # first we sanity check all of the inputs provided. NOTE. If additional functionality is added, new
     # keywords MUST be sanity checked in this function
-    io.check_inputs(expect_unique_header,
+    _io.check_inputs(expect_unique_header,
                     header_parser, 
                     duplicate_record_action,
                     duplicate_sequence_action,
@@ -189,7 +195,7 @@ def read_fasta(filename,
                     verbose)
 
     # the actual file i/o happens here
-    raw = io.internal_parse_fasta_file(filename, expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose)
+    raw = _io.internal_parse_fasta_file(filename, expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose)
 
     # first deal with duplicate records
     updated = _deal_with_duplicate_records(raw, duplicate_record_action, correction_dictionary)
@@ -204,7 +210,7 @@ def read_fasta(filename,
     if return_list:
         return updated
     else:
-        return utilities.convert_list_to_dictionary(updated, verbose)
+        return _utilities.convert_list_to_dictionary(updated, verbose)
         return updated
         
 
@@ -311,29 +317,30 @@ def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', verbose=Fa
 
     # fail on an invalid sequence
     if invalid_sequence_action == 'fail':
-        utilities.fail_on_invalid_sequences(raw)
+        _utilities.fail_on_invalid_sequences(raw)
         return raw
 
     # simply remove invalid sequences
     if invalid_sequence_action == 'remove':
-        updated = utilities.remove_invalid_sequences(raw)
+        updated = _utilities.remove_invalid_sequences(raw)
         
         if verbose:
-            print('Removed %i of %i due to sequences with invalid characters' % (len(raw) - len(updated), len(raw)))
+            print('[INFO]: Removed %i of %i due to sequences with invalid characters' % (len(raw) - len(updated), len(raw)))
 
         return updated
 
     # convert invalid sequences
-    if invalid_sequence_action == 'convert':
-        (updated, count) = utilities.convert_invalid_sequences(raw, correction_dictionary)
+    if invalid_sequence_action == 'convert' or invalid_sequence_action == 'convert-ignore':
+        (updated, count) = _utilities.convert_invalid_sequences(raw, correction_dictionary)
         if verbose:
-            print('Converted %i sequences to valid sequences'%(count))
+            print('[INFO]: Converted %i sequences to valid sequences'%(count))
 
         # note we then rescan in case there were still characters we couldn't deal with
-        try:
-            utilities.fail_on_invalid_sequences(updated)
-        except ProtfastaException as e:
-            raise ProtfastaException("******* Despite fixing fixable errors, additional problems remain with the sequence*********\n%s"%(str(e)))
+        if invalid_sequence_action == 'convert':
+            try:
+                _utilities.fail_on_invalid_sequences(updated)
+            except ProtfastaException as e:
+                raise ProtfastaException("\n\n******* Despite fixing fixable errors, additional problems remain with the sequence*********\n%s"%(str(e)))
 
         return updated
 
@@ -354,12 +361,12 @@ def _deal_with_duplicate_records(raw, duplicate_record_action='ignore', verbose=
         pass
 
     if duplicate_record_action == 'fail':
-        utilities.fail_on_duplicates(raw)
+        _utilities.fail_on_duplicates(raw)
 
     if duplicate_record_action == 'remove':
-        updated = utilities.remove_duplicates(raw)
+        updated = _utilities.remove_duplicates(raw)
         if verbose:
-            print('Removed %i of %i due to duplicate records ' % (len(raw) - len(updated), len(raw)))
+            print('[INFO]: Removed %i of %i due to duplicate records ' % (len(raw) - len(updated), len(raw)))
         return updated
 
     return raw
@@ -376,12 +383,12 @@ def _deal_with_duplicate_sequences(raw, duplicate_sequence_action='ignore', verb
         pass
 
     if duplicate_sequence_action == 'fail':
-        utilities.fail_on_duplicate_sequences(raw)
+        _utilities.fail_on_duplicate_sequences(raw)
         
     if duplicate_sequence_action == 'remove':
-        updated = utilities.remove_duplicate_sequences(raw)
+        updated = _utilities.remove_duplicate_sequences(raw)
         if verbose:
-            print('Removed %i of %i due to duplicate sequences ' % (len(raw) - len(updated), len(raw)))
+            print('[INFO]: Removed %i of %i due to duplicate sequences ' % (len(raw) - len(updated), len(raw)))
         return updated
 
     return raw

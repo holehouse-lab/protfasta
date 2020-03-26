@@ -94,8 +94,8 @@ def check_inputs(expect_unique_header,
 
 
     # check the invalid_sequence 
-    if invalid_sequence_action not in ['ignore','fail','remove','convert']:
-        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail','remove','convert'")
+    if invalid_sequence_action not in ['ignore','fail','remove','convert','convert-ignore']:
+        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail','remove','convert','convert-ignore'")
 
     # check the return_list
     if type(return_list) != bool:
@@ -168,7 +168,7 @@ def internal_parse_fasta_file(filename, expect_unique_header=True, header_parser
         raise ProtfastaException('Unable to find file: %s'%(filename))
     
     if verbose:
-        print('Read in file with %i lines'%(len(content)))
+        print('[INFO]: Read in file with %i lines'%(len(content)))
 
     # note, we'll keep the ability to directly parse dictionaries
     return _parse_fasta_all(content, 'list', expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose)
@@ -253,7 +253,7 @@ def _parse_fasta_all(content, mode, expect_unique_header=True, header_parser=Non
         update()
 
     if verbose:
-        print('Parsed file to recover %i sequences' %(len(return_data)))
+        print('[INFO]: Parsed file to recover %i sequences' %(len(return_data)))
 
 
     return return_data

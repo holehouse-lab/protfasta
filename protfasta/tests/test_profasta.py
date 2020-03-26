@@ -16,7 +16,7 @@ test_data={'test1':['sp|O00401|WASL_HUMAN Neural Wiskott-Aldrich syndrome protei
 def test_read_fasta_standard():
 
     
-    test_data_dir = protfasta.get_data('test_data')
+    test_data_dir = protfasta._get_data('test_data')
     
     simple_filename='%s/testset_1.fasta'%(test_data_dir)
     
@@ -30,7 +30,7 @@ def test_read_fasta_standard():
 
 def test_expect_unique_header_toggle():
     
-    test_data_dir = protfasta.get_data('test_data')    
+    test_data_dir = protfasta._get_data('test_data')    
     simple_filename='%s/testset_1.fasta'%(test_data_dir)
     
     x = protfasta.read_fasta(simple_filename, expect_unique_header=False)
@@ -52,7 +52,7 @@ def test_expect_unique_header_toggle():
 
 def test_header_parser():
     
-    test_data_dir = protfasta.get_data('test_data')
+    test_data_dir = protfasta._get_data('test_data')
     simple_filename='%s/testset_1.fasta'%(test_data_dir)
 
     def d(s):
@@ -94,7 +94,7 @@ def test_header_parser():
 
 def test_duplicate_record_action():    
 
-    test_data_dir = protfasta.get_data('test_data')
+    test_data_dir = protfasta._get_data('test_data')
     duplicate_filename='%s/testset_duplicate.fasta'%(test_data_dir)
     simple_filename='%s/testset_1.fasta'%(test_data_dir)
 
@@ -135,7 +135,7 @@ def test_duplicate_record_action():
 
 def test_duplicate_sequence_action():    
 
-    test_data_dir = protfasta.get_data('test_data')
+    test_data_dir = protfasta._get_data('test_data')
     duplicate_filename='%s/testset_duplicate_seqs.fasta'%(test_data_dir)
     simple_filename='%s/testset_1.fasta'%(test_data_dir)
 
@@ -157,7 +157,7 @@ def test_duplicate_sequence_action():
 
 
 def test_return_list():    
-    test_data_dir = protfasta.get_data('test_data')
+    test_data_dir = protfasta._get_data('test_data')
     duplicate_filename='%s/testset_duplicate_seqs.fasta'%(test_data_dir)
     duplicate_record='%s/testset_duplicate.fasta'%(test_data_dir)
     simple_filename='%s/testset_1.fasta'%(test_data_dir)

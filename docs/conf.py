@@ -23,9 +23,8 @@ import protfasta
 # -- Project information -----------------------------------------------------
 
 project = 'protfasta'
-copyright = ("2020, Alex Holehouse. Project structure based on the "
-             "Computational Molecular Science Python Cookiecutter version 1.1")
-author = 'Alex Holehouse'
+copyright = ("2020, Alex Holehouse (Holehouse lab - http://holehouse.wustl.edu) ")
+author = 'Alex S. Holehouse'
 
 # The short X.Y version
 version = ''
@@ -53,7 +52,7 @@ extensions = [
 ]
 
 autosummary_generate = True
-napoleon_google_docstring = False
+napoleon_google_docstring = True
 napoleon_use_param = False
 napoleon_use_ivar = True
 
@@ -166,7 +165,7 @@ man_pages = [
 #  dir menu entry, description, category)
 texinfo_documents = [
     (master_doc, 'protfasta', 'protfasta Documentation',
-     author, 'protfasta', 'A hyper robuts FASTA parser explicitly for protein sequences',
+     author, 'protfasta', 'A robust FASTA parser built explicitly for protein sequences',
      'Miscellaneous'),
 ]
 

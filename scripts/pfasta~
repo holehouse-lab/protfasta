@@ -1,0 +1,85 @@
+#!/usr/bin/env python
+
+###############################################
+
+import protfasta
+import argparse 
+
+VERSION_MAJ=1
+VERSION_MIN=1
+
+## ===================================================================================================
+##                              Main Script - hold onto your hat!
+## ===================================================================================================
+
+
+def exiterror(msg):
+    print('[FATAL ERROR]: %s'%(msg))
+    exit(1)
+
+def validate(instring, options):
+    if instring.lower() not in options:
+        exiterror('Could not find [%s] in list of valid options [%s]'%(instring, str(option)))
+        
+
+if __name__=="__main__":
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("file", help='Input FASTA file')
+    parser.add_argument("-o", help="Output fasta file (is created)") 
+    parser.add_argument("--expect-unique-header", help="", action='store_true') 
+    parser.add_argument("--duplicate-record", help="How to deal with duplicate records in the file. Options are ['ignore', 'fail', 'remove'] (default = fail)") 
+    parser.add_argument("--duplicate-sequence", help="How to deal with duplicate sequences in the file. Options are ['ignore', 'fail', 'remove'] (default = ignore)") 
+    parser.add_argument("--invalid-sequence", help="How to deal with duplicate sequences in the file. Options are ['ignore', 'fail', 'remove', 'convert-all','convert-res'] (default = fail)") 
+    parser.add_argument("--number-lines", help="Number of lines for FASTA file") 
+    parser.add_argument("--shortest-seq", help="Shortest sequence included ") 
+    parser.add_argument("--longest-seq", help="Longest sequence included") 
+    parser.add_argument("--print-statistics", help="Print information on the sequences") 
+    
+    args = parser.parse_args()
+
+    # sanitize and set 
+    if args.o:
+        outfile = args.o
+    else:
+        outfile = 'output.fasta'
+
+
+    if args.expect_unique_header:
+        expect_unique_header = True
+    else:
+        expect_unique_header = False
+
+    if args.duplicate_record:
+        duplicate_record = validate(args.duplicate_record, ['ignore','fail','remove'])
+
+    if args.duplicate_sequence:
+        duplicate_sequence = validate(args.duplicate_sequence, ['ignore','fail','remove'])
+
+    if args.invalid_sequence:
+        duplicate_record = validate(args.invalid_sequence, ['ignore','fail','remove','convert-all','convert-res'])
+        
+
+
+        
+        # INPUT VALIDATION
+        ###########################################################
+        if args.pdb is None:
+            args.pdb = '__START.pdb'
+            if not os.path.isfile(args.pdb):
+                args.pdb = 'full.pdb'
+
+        # check all files exist
+        if not os.path.isfile(args.pdb):
+            print("PDB file [%s] could not be read" % args.pdb)
+            exit(1)
+
+        CO = cttrajectory.CTTrajectory('%s'%args.pdb,'%s'%args.pdb, pdblead=False)
+        CP = CO.proteinTrajectoryList[0]
+
+        sequence = CP.get_aminoAcidSequence(oneletter=True)
+        print(sequence)
+        with open('outseq.fasta','w') as fh:
+            fh.write('%s'%(sequence))
+        exit(0)

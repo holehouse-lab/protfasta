@@ -42,7 +42,7 @@ install:
 
 
 script:
-  - pytest -v --cov=profasta profasta/tests/
+  - pytest -v --cov=protfasta protfasta/tests/
 
 notifications:
     email: false

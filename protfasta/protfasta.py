@@ -31,8 +31,12 @@ from .protfasta_exceptions import ProtfastaException
 #
 #
 def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', verbose=False, correction_dictionary=None):
+    """
+    Function that defines how to deal with invalid fail 
 
-    # fail on an invalid sequence
+    """
+
+    # sequencescode on an invalid sequence
     if invalid_sequence_action == 'fail':
         _utilities.fail_on_invalid_sequences(raw)
         return raw

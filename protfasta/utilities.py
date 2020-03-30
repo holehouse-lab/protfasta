@@ -1,6 +1,10 @@
 from .protfasta_exceptions import ProtfastaException
-
 from ._configs import STANDARD_CONVERSION, STANDARD_AAS
+
+# To do: Need to fully annotate the docstring for these
+# internal functions
+#
+
 
 
 

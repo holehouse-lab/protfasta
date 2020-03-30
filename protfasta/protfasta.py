@@ -24,15 +24,44 @@ from .protfasta_exceptions import ProtfastaException
 
     
 
-
-
-
 ####################################################################################################
 #
 #
 def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', verbose=False, correction_dictionary=None):
     """
-    Function that defines how to deal with invalid fail 
+    Function that defines how to deal with invalid amino acids in a nest-sequence list.
+
+    Parameters
+    -----------
+
+    raw : list
+        List of lists, where each sub-list has two elements (0 = header, 1 = sequence)
+
+    invalid_sequence_action : {'fail','remove', 'ignore', 'convert', 'convert-ignore'}
+        Keyword that defines the action taken upon encountering an invalid amino acid residue.
+        default = 'fail'.
+
+    verbose : bool
+        Defines if the function provides extensive output to STDOUT (True) or not (False)
+        default = False
+
+    correction_dictionary : dict
+        Dictionary that defines how specific residues will be converted. By default, the following conversions
+        are used:
+        
+            * ``B -> N``
+            * ``U -> C``
+            * ``X -> G``
+            * ``Z -> Q``
+            * ``* -> <empty string>``
+            * ``- -> <empty string>``
+
+        HOWEVER, a customizable dictionary can be passed
+
+    Returns
+    --------
+        Returns an updated nested list of lists where the appropriate action has been taken to alter entries
+        with invalid sequences.
 
     """
 
@@ -77,6 +106,29 @@ def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', verbose=Fa
 #
 #
 def _deal_with_duplicate_records(raw, duplicate_record_action='ignore', verbose=False):
+    """
+    Function that defines how to deal with duplicate FASTA records
+
+    Parameters
+    -----------
+
+    raw : list
+        List of lists, where each sub-list has two elements (0 = header, 1 = sequence)
+
+    invalid_sequence_action : {'fail','remove', 'ignore'}
+        Keyword that defines the action taken upon encountering a duplicate record.
+        default = 'fail'.
+
+    verbose : bool
+        Defines if the function provides extensive output to STDOUT (True) or not (False)
+        default = False
+
+    Returns
+    --------
+        Returns an updated nested list of lists where the appropriate action has been taken 
+        to alter duplicate records
+
+    """
 
     if duplicate_record_action == 'ignore':
         pass
@@ -98,7 +150,29 @@ def _deal_with_duplicate_records(raw, duplicate_record_action='ignore', verbose=
 #
 #
 def _deal_with_duplicate_sequences(raw, duplicate_sequence_action='ignore', verbose=False):
+    """
+    Function that defines how to deal with duplicate sequences
 
+    Parameters
+    -----------
+
+    raw : list
+        List of lists, where each sub-list has two elements (0 = header, 1 = sequence)
+
+    invalid_sequence_action : {'fail','remove', 'ignore'}
+        Keyword that defines the action taken upon encountering a duplicate sequence.
+        default = 'ignore'.
+
+    verbose : bool
+        Defines if the function provides extensive output to STDOUT (True) or not (False)
+        default = False
+
+    Returns
+    --------
+        Returns an updated nested list of lists where the appropriate action has been taken 
+        to alter duplicate sequences
+
+    """
 
     if duplicate_sequence_action == 'ignore':
         pass
@@ -114,8 +188,3 @@ def _deal_with_duplicate_sequences(raw, duplicate_sequence_action='ignore', verb
 
     return raw
 
-
-
-if __name__ == "__main__":
-    # Do something if this file is invoked on its own
-    pass

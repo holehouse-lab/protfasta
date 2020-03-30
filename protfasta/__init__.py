@@ -37,8 +37,8 @@ def read_fasta(filename,
                verbose=False):    
 
     """
-    ``read_fasta`` is the main one of of only two user-facing functions associated with protfasta. 
-    It is designed as a catch-all function for reading in a FASTA file, performing santization, 
+    ``read_fasta`` is the main one of of only two user-facing functions associated with **protfasta**. 
+    It is designed as a catch-all function for reading in a FASTA file, performing sanitization, 
     and returning a list or dictionary of sequences and their associated headers.
 
     There are a number of parameters which can be included, but as one might expect the simplest
@@ -49,7 +49,7 @@ def read_fasta(filename,
     This will read in the file associated with filename and return a dictionary, where the keys
     are the FASTA file headers and the values are the amino acid sequences associated with each.
     
-    Note that as of python 3.7 the order in which one adds items to a dictionary is guarenteed
+    Note that as of python 3.7 the order in which one adds items to a dictionary is guaranteed
     to be the order in which they're retrieved, so cycling through the resulting dictionary will
     in fact allow you to cycle through in order. 
 
@@ -114,7 +114,7 @@ def read_fasta(filename,
             * ``remove`` - duplicate sequences are removed, so there's only one copy of any duplicates (1st instance kept)     
     
     invalid_sequence_action : ``'ignore'``, ``'fail'``, ``'remove'``, ``'convert'``, ``'convert-ignore'``
-        [**Default = 'fail'**] Selector that determines how to deal with invalid sequences. If ``convert`` or ``convert-ignore`` are chosen then conversion is completed with either the standard conversion table (shown under the ``correction_dictionary`` documentation) or with a custom conversion dictionary passed to ``correction_dictionary``. 
+        [**Default = 'fail'**] Selector that determines how to deal with invalid sequences. If ``convert`` or ``convert-ignore`` are chosen, then conversion is completed with either the standard conversion table (shown under the ``correction_dictionary`` documentation) or with a custom conversion dictionary passed to ``correction_dictionary``. 
         Options are as follows: 
             * ``ignore``  - invalid sequences are completely ignored
 
@@ -137,7 +137,7 @@ def read_fasta(filename,
         a new FASTA file to be written with the final set of sequences returned.
 
     correction_dictionary : dict
-        [**Default = None**] protfasta can automatically correct non-standard amino acids to standard amino acids using the
+        [**Default = None**] **protfasta** can automatically correct non-standard amino acids to standard amino acids using the
         ``invalid_sequence`` keyword. This is useful if downstream analysis assumes/requires fully standard amino acids. 
         This is also useful for removing '-'  from aligned sequences. The standard conversions used are:
         
@@ -152,7 +152,7 @@ def read_fasta(filename,
         In principle this could be used to perform arbitrary coarse-graining if a sequence...
 
     verbose : bool 
-        [**Default = False**] If set to True, protfasta will print out information as it works its way through reading and
+        [**Default = False**] If set to True, **protfasta** will print out information as it works its way through reading and
         parsing FASTA files. This can be useful for diagnosis.
 
     Returns
@@ -200,7 +200,7 @@ def write_fasta(fasta_data, filename, linelength=60, verbose=False):
     """
     Simple function that takes a dictionary of key to sequence values
     and writes out a valid FASTA file. No return type, but writes a file 
-    to disk according to the location defined by filename .
+    to disk according to the location defined by the variable ``filename``.
     
     Parameters
     -----------
@@ -214,7 +214,7 @@ def write_fasta(fasta_data, filename, linelength=60, verbose=False):
 
     linelength : int
         [**Default = 60**] Length of line to be written for sequence (note this does
-        not effect the header line. 60 is default used by Uniprot. If set to 0, None or 
+        not effect the header line. 60 is default used by UniProt. If set to 0, None or 
         False no line-length limit is used. Note ``linelength`` must be > 5.
 
     Returns 

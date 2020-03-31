@@ -62,6 +62,21 @@ Some possible exampls of reading FASTA files using protfasta:
 				     correction_dictionary=CD)
 
 
+**Example 5: Read in FASTA file quickly without error checking
+By default **protfasta** performs a bunch of sanity checking. In general this probably doesn't need to be done every time if you KNOW
+a file is safe. To cancel any sanity checking and read in at maximum efficiency the following options can be provided:
+
+.. code-block:: python
+
+    import protfasta
+
+    sequences = protfasta.read_fasta('inputfile.fasta', 
+                                     invalid_sequence_action='ignore', 
+				     duplicate_record_action='ignore',
+				     duplicate_sequence_action='ignore',
+				     expect_unique_header=False)
+
+
 
 ``write_fasta`` examples
 .............

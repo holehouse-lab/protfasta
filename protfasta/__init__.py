@@ -85,7 +85,7 @@ def read_fasta(filename,
         a list. 
 
     header_parser : function
-        [**Default = True**] ``header_parser`` allows a user-defined function that will be fed the FASTA header and 
+        [**Default = None**] ``header_parser`` allows a user-defined function that will be fed the FASTA header and 
         whatever it returns will be used as the actual header as the files are parsed. This can be useful if you 
         know your FASTA header has a consistent format that you want to take advantage of. A function provided here MUST        
         **(1)** Take a single input argument (the header string) and **(2)** Return a single string.

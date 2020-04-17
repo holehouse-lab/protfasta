@@ -60,6 +60,7 @@ def read_fasta(filename,
     
     1. File is read in, custom headers are parsed, and unique headers are tested (if ``expect_unique = True``)
     
+
     2. Check for duplicate records and respond appropriately (**optional**)
     
     3. Check for duplicate sequences and respond appropriately (**optional**)

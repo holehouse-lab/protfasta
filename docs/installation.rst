@@ -9,14 +9,14 @@ Installation
 
 **protfasta** can be downloaded and installed directly from PyPI using **pip**:
 
-.. code-block::
+.. code-block:: none
 
    pip install protfasta
 
 
 If this has worked, the **pfasta** tool should be available from the command-line
 
-.. code-block::
+.. code-block:: none
    
    pfasta --help
 

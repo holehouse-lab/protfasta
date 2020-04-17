@@ -71,7 +71,6 @@ def check_inputs(expect_unique_header,
     if type(expect_unique_header) != bool:
         raise ProtfastaException("keyword 'expect_unique_header' must be a boolean")
 
-
     # validate the header_parser 
     if header_parser is not None:
         if not callable(header_parser):

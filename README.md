@@ -3,7 +3,7 @@ protfasta
 [//]: # (Badges)
 [![Build Status](https://travis-ci.org/holehouse-lab/protfasta.svg?branch=master)](https://travis-ci.org/holehouse-lab/protfasta)
 
-## Release 0.1.2
+## Release 0.1.3
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.

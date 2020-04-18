@@ -186,12 +186,18 @@ def read_fasta(filename,
     # next decide how we deal with invalid amino acid sequences
     updated = _protfasta._deal_with_invalid_sequences(updated, invalid_sequence_action, verbose)
 
-    # finally, if we wanted to write the final set of sequences we're going to use...:
-    if return_list:
-        return updated
+    # If we wanted to write the final set of sequences we're going to use...:
+    if output_filename:
+        write_fasta(updated, output_filename)
+
+    # if we asked for a list...
+    if return_list is True:
+        pass    
     else:
-        return _utilities.convert_list_to_dictionary(updated, verbose)
-        return updated
+        updated = _utilities.convert_list_to_dictionary(updated, verbose)
+
+        
+    return updated
         
 
 

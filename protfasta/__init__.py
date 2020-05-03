@@ -266,6 +266,9 @@ def write_fasta(fasta_data, filename, linelength=60, verbose=False):
         for entry in fasta_data:
 
             (header, seq) = get_sequence()
+            if len(seq) < 1:
+                raise ProtfastaException('Seqence associated with [%s] is empty'%(header))
+                
 
             # write the header line
             fh.write('>%s\n'%(header))

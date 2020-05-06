@@ -10,7 +10,7 @@ from argparse import RawTextHelpFormatter
 
 
 VERSION_MAJ=0
-VERSION_MIN=1
+VERSION_MIN=3
 
 ## ===================================================================================================
 ##                              Main Script - hold onto your hat!
@@ -94,6 +94,7 @@ if __name__=="__main__":
     parser.add_argument("--print-statistics", help="Print information on the sequences",action='store_true') 
     parser.add_argument("--no-outputfile", help="Prevents pfasta from writing an output file ",action='store_true') 
     parser.add_argument("--silent", help="Generate no output at all to STDOUT", action='store_true') 
+    parser.add_argument("--remove-comma-from-header", help="Flag that, if set, commas in FASTA headers will be replaced with ';' characters. Useful if you have code that parses FASTA headers as part of a CSV file", action='store_true') 
     
     args = parser.parse_args()
     silent = args.silent
@@ -218,6 +219,14 @@ if __name__=="__main__":
         if longest < shortest:
             exit_error('--longest-seq must be longer than --shortest-seq')
 
+    if args.remove_comma_from_header:
+        def hp(s):
+            return s.replace(',',';')
+    else:
+        hp = None
+        
+
+
     # read in
     stdout('', silent)
     stdout('[INFO]: Reading in the file %s'%(args.filename), silent)
@@ -227,6 +236,7 @@ if __name__=="__main__":
         verb=True
     data = protfasta.read_fasta(args.filename, 
                                 expect_unique_header=expect_unique_header,
+                                header_parser=hp,
                                 duplicate_sequence_action=duplicate_sequence,
                                 duplicate_record_action=duplicate_record,
                                 invalid_sequence_action=invalid_sequence,

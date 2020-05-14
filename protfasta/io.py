@@ -79,9 +79,10 @@ def check_inputs(expect_unique_header,
         try:
             a = header_parser('this test string should work')
             if type(a) != str:
-                raise Exception
-        except Exception:
-            raise ProtfastaException('Something went wrong when testing the header_parser function.\nEnsure that the test example works and that the function returns a string [type str]')
+                raise ProtfastaException('Something went wrong when testing the header_parser function.\nFunction completed but return value was not a string')
+        except Exception as e:
+            raise ProtfastaException('Something went wrong when testing the header_parser function.\nException: %s'%str(e))
+            
 
     # check the duplicates_record_action 
     if duplicate_record_action not in ['ignore','fail','remove']:

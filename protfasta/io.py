@@ -26,7 +26,9 @@ def check_inputs(expect_unique_header,
                  invalid_sequence_action, 
                  return_list, 
                  output_filename, 
-                 verbose):
+                 verbose,
+                 correction_dictionary):
+    
     """
     Function that performs sanity validation for all input arguments. If arguments do not match the expected
     behaviour then this function will throw an exception.
@@ -59,6 +61,9 @@ def check_inputs(expect_unique_header,
 
     verbose : ?
         Checks it's a bool
+
+    correction_dictionary : ?
+        Checks it's a dictionary
 
     Returns
     ---------
@@ -106,12 +111,18 @@ def check_inputs(expect_unique_header,
         if type(output_filename) != str:
             raise ProtfastaException("keyword 'output_filename' must be a string")
 
+    # check verbose
     if type(verbose) != bool:
         raise ProtfastaException("keyword 'verbose' must be a boolean")
 
+    # checks correction dictionary
     if duplicate_record_action is 'ignore':
         if expect_unique_header is True:
             raise ProtfastaException('Cannot expect unique headers and ignore duplicate records')
+
+    if correction_dictionary is not None:
+        if type(correction_dictionary) != dict:
+            raise ProtfastaException("If provided, keyword 'correction_dictionary' must be a dictionary")
 
 
 

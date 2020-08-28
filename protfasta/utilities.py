@@ -64,7 +64,7 @@ def convert_to_valid(seq, correction_dictionary=None):
     """
 
     if correction_dictionary:
-        converter = additional_dictionary
+        converter = correction_dictionary
     else:
         converter = STANDARD_CONVERSION
 

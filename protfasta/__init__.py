@@ -149,9 +149,9 @@ def read_fasta(filename,
             * ``* -> <empty string>``
             * ``- -> <empty string>``
         However, if alternative definitions are needed they can be passed via the ``correction_dictionary`` keyword.
-        The ``correction_dictionary`` should be a dictionary that maps standard amino acids to some other residue type.
-        In principle this could be used to perform arbitrary coarse-graining if a sequence...
-
+        The ``correction_dictionary`` should be a dictionary that maps sequences characters to some other character (ideally
+        valid amino acid characters). In principle this could be used to perform arbitrary coarse-graining if a sequence...
+        
     verbose : bool 
         [**Default = False**] If set to True, **protfasta** will print out information as it works its way through reading and
         parsing FASTA files. This can be useful for diagnosis.
@@ -166,25 +166,30 @@ def read_fasta(filename,
     # first we sanity check all of the inputs provided. NOTE. If additional functionality is added, new
     # keywords MUST be sanity checked in this function
     _io.check_inputs(expect_unique_header,
-                    header_parser, 
-                    duplicate_record_action,
-                    duplicate_sequence_action,
-                    invalid_sequence_action, 
-                    return_list, 
-                    output_filename,
-                    verbose)
+                     header_parser, 
+                     duplicate_record_action,
+                     duplicate_sequence_action,
+                     invalid_sequence_action, 
+                     return_list, 
+                     output_filename,
+                     verbose,
+                     correction_dictionary)
+    
 
     # the actual file i/o happens here
     raw = _io.internal_parse_fasta_file(filename, expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose)
 
     # first deal with duplicate records
-    updated = _protfasta._deal_with_duplicate_records(raw, duplicate_record_action, correction_dictionary)
+    updated = _protfasta._deal_with_duplicate_records(raw, duplicate_record_action, verbose)
 
     # deal with duplicate sequences
     updated = _protfasta._deal_with_duplicate_sequences(updated, duplicate_sequence_action, verbose)
 
     # next decide how we deal with invalid amino acid sequences
-    updated = _protfasta._deal_with_invalid_sequences(updated, invalid_sequence_action, verbose)
+    updated = _protfasta._deal_with_invalid_sequences(updated, 
+                                                      invalid_sequence_action, 
+                                                      verbose=verbose, 
+                                                      correction_dictionary=correction_dictionary)
 
     # If we wanted to write the final set of sequences we're going to use...:
     if output_filename:

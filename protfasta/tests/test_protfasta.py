@@ -177,3 +177,73 @@ def test_return_list():
     x = protfasta.read_fasta(duplicate_record, duplicate_record_action='remove', return_list=True, expect_unique_header=False)
     assert len(x) == 2
 
+
+
+def test_sequences_with_bad_chars():
+    test_data_dir = protfasta._get_data('test_data')
+    badchar_filename = '%s/test_data_with_bad_chars.fa'%(test_data_dir)
+    nonstandard_filename = '%s/test_data_with_nonstandard_chars.fa'%(test_data_dir)
+
+
+    # expect this to fail because invalid  characters are in here...
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(badchar_filename)
+    
+    # expect this to fail because non-standard characters are in here...
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(nonstandard_filename)
+
+
+    # expect this to fail because invalid  characters are in here (explicitlty pass 'fail')
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(badchar_filename, invalid_sequence_action='fail')
+    
+    # expect this to fail because non-standard characters are in here... (explicitlty pass 'fail')
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(nonstandard_filename, invalid_sequence_action='fail')
+
+    # make sure we can ignore bad chars regardless of if they're convertable or not
+    assert len(protfasta.read_fasta(nonstandard_filename, invalid_sequence_action='ignore')) == 4
+    assert len(protfasta.read_fasta(badchar_filename, invalid_sequence_action='ignore')) == 4
+
+    # make sure we can convert nonstandard names
+    assert len(protfasta.read_fasta(nonstandard_filename, invalid_sequence_action='convert')) == 4
+
+    # make sure we can't convert invalid character names
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(badchar_filename, invalid_sequence_action='convert')
+    
+    # make sure we can convert and ignore (even when ignore is not needed)
+    assert len(protfasta.read_fasta(nonstandard_filename, invalid_sequence_action='convert-ignore')) == 4
+
+    # make sure we can convert and ignore (even when ignore is needed)
+    assert len(protfasta.read_fasta(badchar_filename, invalid_sequence_action='convert-ignore')) == 4
+
+    # make sure we can remove sequences with bad chars regardless of if they're convertable or not
+    assert len(protfasta.read_fasta(nonstandard_filename, invalid_sequence_action='remove')) == 0
+    assert len(protfasta.read_fasta(badchar_filename, invalid_sequence_action='remove')) == 0
+
+
+    #CD = {'-': '', '.': 'A', 'X':'Y'}
+    CD = {'.':'A'}
+
+    # this should fail because no conversion has been requested
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(nonstandard_filename, correction_dictionary=CD)
+
+    # THIS should fail because we've overwritten the default dictionary     
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(nonstandard_filename, correction_dictionary=CD, invalid_sequence_action='convert')
+
+    # this should fail because CD does not explain all chars that must be corrected
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(badchar_filename, correction_dictionary=CD, invalid_sequence_action='convert')
+
+    CD = {'.':'A', '-':'C'}
+    x = protfasta.read_fasta(badchar_filename, correction_dictionary=CD, invalid_sequence_action='convert')
+
+    CD = {'.':'A'}
+    x = protfasta.read_fasta(badchar_filename, correction_dictionary=CD, invalid_sequence_action='convert-ignore')
+
+    
+

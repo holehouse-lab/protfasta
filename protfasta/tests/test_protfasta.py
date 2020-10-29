@@ -13,6 +13,7 @@ def test_protfasta_imported():
     assert "protfasta" in sys.modules
 
 test_data={'test1':['sp|O00401|WASL_HUMAN Neural Wiskott-Aldrich syndrome protein OS=Homo sapiens OX=9606 GN=WASL PE=1 SV=2','MSSVQQQPPPPRRVTNVGSLLLTPQENESLFTFLGKKCVTMSSAVVQLYAADRNCMWSKKCSGVACLVKDNPQRSYFLRIFDIKDGKLLWEQELYNNFVYNSPRGYFHTFAGDTCQVALNFANEEEAKKFRKAVTDLLGRRQRKSEKRRDPPNGPNLPMATVDIKNPEITTNRFYGPQVNNISHTKEKKKGKAKKKRLTKADIGTPSNFQHIGHVGWDPNTGFDLNNLDPELKNLFDMCGISEAQLKDRETSKVIYDFIEKTGGVEAVKNELRRQAPPPPPPSRGGPPPPPPPPHNSGPPPPPARGRGAPPPPPSRAPTAAPPPPPPSRPSVAVPPPPPNRMYPPPPPALPSSAPSGPPPPPPSVLGVGPVAPPPPPPPPPPPGPPPPPGLPSDGDHQVPTTAGNKAALLDQIREGAQLKKVEQNSRPVSCSGRDALLDQIRQGIQLKSVADGQESTPPTPAPTSGIVGALMEVMQKRSKAIHSSDEDEDEDDEEDFEDDDEWED']}
+
 def test_read_fasta_standard():
 
     
@@ -188,16 +189,15 @@ def test_sequences_with_bad_chars():
     # expect this to fail because invalid  characters are in here...
     with pytest.raises(ProtfastaException):
         x = protfasta.read_fasta(badchar_filename)
-    
+    q
     # expect this to fail because non-standard characters are in here...
     with pytest.raises(ProtfastaException):
         x = protfasta.read_fasta(nonstandard_filename)
 
-
     # expect this to fail because invalid  characters are in here (explicitlty pass 'fail')
     with pytest.raises(ProtfastaException):
         x = protfasta.read_fasta(badchar_filename, invalid_sequence_action='fail')
-    
+
     # expect this to fail because non-standard characters are in here... (explicitlty pass 'fail')
     with pytest.raises(ProtfastaException):
         x = protfasta.read_fasta(nonstandard_filename, invalid_sequence_action='fail')
@@ -209,10 +209,11 @@ def test_sequences_with_bad_chars():
     # make sure we can convert nonstandard names
     assert len(protfasta.read_fasta(nonstandard_filename, invalid_sequence_action='convert')) == 4
 
+
     # make sure we can't convert invalid character names
     with pytest.raises(ProtfastaException):
         x = protfasta.read_fasta(badchar_filename, invalid_sequence_action='convert')
-    
+
     # make sure we can convert and ignore (even when ignore is not needed)
     assert len(protfasta.read_fasta(nonstandard_filename, invalid_sequence_action='convert-ignore')) == 4
 
@@ -222,7 +223,6 @@ def test_sequences_with_bad_chars():
     # make sure we can remove sequences with bad chars regardless of if they're convertable or not
     assert len(protfasta.read_fasta(nonstandard_filename, invalid_sequence_action='remove')) == 0
     assert len(protfasta.read_fasta(badchar_filename, invalid_sequence_action='remove')) == 0
-
 
     #CD = {'-': '', '.': 'A', 'X':'Y'}
     CD = {'.':'A'}
@@ -245,5 +245,5 @@ def test_sequences_with_bad_chars():
     CD = {'.':'A'}
     x = protfasta.read_fasta(badchar_filename, correction_dictionary=CD, invalid_sequence_action='convert-ignore')
 
-    
+
 

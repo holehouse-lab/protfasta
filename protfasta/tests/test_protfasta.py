@@ -189,7 +189,7 @@ def test_sequences_with_bad_chars():
     # expect this to fail because invalid  characters are in here...
     with pytest.raises(ProtfastaException):
         x = protfasta.read_fasta(badchar_filename)
-    q
+    
     # expect this to fail because non-standard characters are in here...
     with pytest.raises(ProtfastaException):
         x = protfasta.read_fasta(nonstandard_filename)

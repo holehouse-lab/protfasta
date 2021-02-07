@@ -247,3 +247,51 @@ def test_sequences_with_bad_chars():
 
 
 
+def test_alignment_files():
+    test_data_dir = protfasta._get_data('test_data')
+    
+    f1 = '%s/aligned_seq_all_valid.fasta' % (test_data_dir)    
+    f2 = '%s/aligned_seq_all_valid_convertable.fasta' % (test_data_dir)    
+    f3 = '%s/aligned_seq_all_valid_unconvertable.fasta' % (test_data_dir)    
+    
+    x = protfasta.read_fasta(f1, alignment=True)
+    
+    assert x['Seq1'] == 'A-----CDEFGHIKLMNPQRSTVWY'
+    
+
+    # this should fail because by default dashes are invalid and fail upon invalid is set to true
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(f1)
+
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(f1, alignment=1)
+
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(f2, alignment=True)
+
+    x = protfasta.read_fasta(f2, alignment=True, invalid_sequence_action='convert')
+    assert x['Seq1'] == 'A-----CDEFGHIKLMNPQRSTVWY'
+
+
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(f3, alignment=True, invalid_sequence_action='convert')
+
+    with pytest.raises(ProtfastaException):
+        x = protfasta.read_fasta(f3, alignment=True)
+        
+    x = protfasta.read_fasta(f3, alignment=True, invalid_sequence_action='convert-ignore')
+    assert x['Seq2'] ==  'ACDEFGHIKL-----MNPQRSTVWYN'
+
+    x = protfasta.read_fasta(f3, alignment=True, invalid_sequence_action='remove')
+    assert len(x) == 0
+
+    x = protfasta.read_fasta(f1, alignment=True, invalid_sequence_action='remove')
+    assert len(x) == 3
+    
+    x = protfasta.read_fasta(f1, invalid_sequence_action='remove')
+    assert len(x) == 0
+
+
+
+
+

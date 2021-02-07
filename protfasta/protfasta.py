@@ -27,7 +27,7 @@ from .protfasta_exceptions import ProtfastaException
 ####################################################################################################
 #
 #
-def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', verbose=False, correction_dictionary=None):
+def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', alignment=False, verbose=False, correction_dictionary=None):
     """
     Function that defines how to deal with invalid amino acids in a nest-sequence list.
 
@@ -40,6 +40,10 @@ def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', verbose=Fa
     invalid_sequence_action : {'fail','remove', 'ignore', 'convert', 'convert-ignore'}
         Keyword that defines the action taken upon encountering an invalid amino acid residue.
         default = 'fail'.
+
+    alignment : bool
+        Flag which, if passed, means the expectation is that the sequence will contains dashes and that's
+        OK. If set False dashes are converted and/or treated as invalid residues.
 
     verbose : bool
         Defines if the function provides extensive output to STDOUT (True) or not (False)
@@ -67,12 +71,12 @@ def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', verbose=Fa
 
     # sequencescode on an invalid sequence
     if invalid_sequence_action == 'fail':
-        _utilities.fail_on_invalid_sequences(raw)
+        _utilities.fail_on_invalid_sequences(raw, alignment)
         return raw
 
     # simply remove invalid sequences
     if invalid_sequence_action == 'remove':
-        updated = _utilities.remove_invalid_sequences(raw)
+        updated = _utilities.remove_invalid_sequences(raw, alignment)
         
         if verbose:
             print('[INFO]: Removed %i of %i due to sequences with invalid characters' % (len(raw) - len(updated), len(raw)))
@@ -81,14 +85,14 @@ def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', verbose=Fa
 
     # convert invalid sequences
     if invalid_sequence_action == 'convert' or invalid_sequence_action == 'convert-ignore':
-        (updated, count) = _utilities.convert_invalid_sequences(raw, correction_dictionary)
+        (updated, count) = _utilities.convert_invalid_sequences(raw, correction_dictionary, alignment)
         if verbose:
             print('[INFO]: Converted %i sequences to valid sequences'%(count))
 
         # note we then rescan in case there were still characters we couldn't deal with
         if invalid_sequence_action == 'convert':
             try:
-                _utilities.fail_on_invalid_sequences(updated)
+                _utilities.fail_on_invalid_sequences(updated, alignment)
             except ProtfastaException as e:
                 raise ProtfastaException("\n\n******* Despite fixing fixable errors, additional problems remain with the sequence*********\n%s"%(str(e)))
 

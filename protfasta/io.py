@@ -24,6 +24,7 @@ def check_inputs(expect_unique_header,
                  duplicate_record_action, 
                  duplicate_sequence_action,
                  invalid_sequence_action, 
+                 alignment,
                  return_list, 
                  output_filename, 
                  verbose,
@@ -52,6 +53,9 @@ def check_inputs(expect_unique_header,
 
     invalid_sequence : ?
         Checks it's a string that matches a specific keyword
+
+    alignment : ?
+        Checks that this is a bool
 
     return_list : ?
         Checks it's a bool
@@ -115,11 +119,14 @@ def check_inputs(expect_unique_header,
     if type(verbose) != bool:
         raise ProtfastaException("keyword 'verbose' must be a boolean")
 
-    # checks correction dictionary
+    if type(alignment) != bool:
+        raise ProtfastaException("keyword 'alignment' must be a boolean")
+        
     if duplicate_record_action is 'ignore':
         if expect_unique_header is True:
             raise ProtfastaException('Cannot expect unique headers and ignore duplicate records')
-
+            
+    # checks correction dictionary
     if correction_dictionary is not None:
         if type(correction_dictionary) != dict:
             raise ProtfastaException("If provided, keyword 'correction_dictionary' must be a dictionary")

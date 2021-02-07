@@ -31,6 +31,7 @@ def read_fasta(filename,
                duplicate_sequence_action='ignore',
                duplicate_record_action='fail',
                invalid_sequence_action='fail',
+               alignment=False,
                return_list=False,               
                output_filename=None,
                correction_dictionary=None,
@@ -126,6 +127,10 @@ def read_fasta(filename,
             * ``convert`` - invalid sequences are convert
 
             * ``convert-ignore`` - invalid sequences are converted to valid sequences and any remaining invalid residues are ignored
+
+    alignment : bool
+        [**Default = False**] Flag which - if set to true - the Fasta file is treated as containing alignments (with dashes) such that '-' characters are not
+        treated as invalid or converted. Works in concert with other flags.  
     
     return_list : bool 
         [**Default = False**] Flag that tells the function to return a list of 2-mer lists (where position 0 is the header
@@ -170,6 +175,7 @@ def read_fasta(filename,
                      duplicate_record_action,
                      duplicate_sequence_action,
                      invalid_sequence_action, 
+                     alignment,
                      return_list, 
                      output_filename,
                      verbose,
@@ -188,6 +194,7 @@ def read_fasta(filename,
     # next decide how we deal with invalid amino acid sequences
     updated = _protfasta._deal_with_invalid_sequences(updated, 
                                                       invalid_sequence_action, 
+                                                      alignment=alignment,
                                                       verbose=verbose, 
                                                       correction_dictionary=correction_dictionary)
 

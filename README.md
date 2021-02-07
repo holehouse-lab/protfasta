@@ -3,7 +3,7 @@ protfasta
 [//]: # (Badges)
 [![Build Status](https://travis-ci.org/holehouse-lab/protfasta.svg?branch=master)](https://travis-ci.org/holehouse-lab/protfasta)
 
-## Release 0.1.3
+## Release 0.1.6 (Feb 2021)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -43,7 +43,7 @@ For bug reports or errors please raise an issue on this github repository (see t
 
 ## Copyright
 
-Copyright (c) 2020, Alex Holehouse  - [Holehouse lab](http://holehouse.wustl.edu/). `protfasta` is released under the MIT license. The codebase is well structured and relatively simple, lending it to feature addition. We welcome pull-requests assuming contributed code maintains an appropriate level of clarity and robustness. 
+Copyright (c) 2020-2021, Alex Holehouse  - [Holehouse lab](http://holehouse.wustl.edu/). `protfasta` is released under the MIT license. The codebase is well structured and relatively simple, lending it to feature addition. We welcome pull-requests assuming contributed code maintains an appropriate level of clarity and robustness. 
 
 
 #### Acknowledgements

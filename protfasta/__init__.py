@@ -6,6 +6,7 @@ from . import io as _io
 from ._configs import STANDARD_AAS, STANDARD_CONVERSION
 from . import protfasta as _protfasta
 import os
+from . protfasta_exceptions import ProtfastaException
 
 # Handle versioneer
 from ._version import get_versions

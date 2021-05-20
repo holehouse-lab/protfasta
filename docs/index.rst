@@ -35,6 +35,8 @@ Bugs and help
 
 If you find any bugs or have feature requests please raise an issue on our `Github page <https://github.com/holehouse-lab/protfasta/>`_. **protfasta** uses a continous integration suite for the main package, and **pfasta** has a set of local tests that are run upon updates.
 
+A note: protfasta was built to work with Python 3.7 or higher. However, it does - in principle, work with Python 3.6 but there may be some oddities. We strongly recommend using 3.7.6 or higher.
+
 
 How to cite **protfasta**
 .........................

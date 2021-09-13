@@ -122,7 +122,7 @@ def check_inputs(expect_unique_header,
     if type(alignment) != bool:
         raise ProtfastaException("keyword 'alignment' must be a boolean")
         
-    if duplicate_record_action is 'ignore':
+    if duplicate_record_action == 'ignore':
         if expect_unique_header is True:
             raise ProtfastaException('Cannot expect unique headers and ignore duplicate records')
             

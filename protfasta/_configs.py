@@ -22,12 +22,14 @@ STANDARD_CONVERSION = {'B':'N',
                        'X':'G',
                        'Z':'Q',
                        '*':'',
-                       '-':''}
+                       '-':'',
+                       ' ':''}
 
 STANDARD_CONVERSION_WITH_GAP = {'B':'N',
                                 'U':'C',
                                 'X':'G',
                                 'Z':'Q',
+                                ' ':'',
                                 '*':''}
 
 STANDARD_AAS = ['A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y']

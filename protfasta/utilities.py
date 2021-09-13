@@ -43,6 +43,7 @@ def convert_to_valid(seq, correction_dictionary=None, alignment=False):
     U -> C
     X -> G
     Z -> Q
+    ' ' -> <empty string> (i.e. an empty space)
     * -> <empty string>
     - -> <empty string> (ONLY if alignment is False)
 
@@ -108,12 +109,6 @@ def check_sequence_is_valid(seq, alignment=False):
 
         element 1 is a value that will return as the invalid amino acid
         (if sequence is invalid) OR if it's a valid sequence will be 0
-
-        
-
-    
-    
-
     """
 
     if alignment == True:

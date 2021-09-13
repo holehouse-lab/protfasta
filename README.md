@@ -3,7 +3,7 @@ protfasta
 [//]: # (Badges)
 [![Build Status](https://travis-ci.org/holehouse-lab/protfasta.svg?branch=master)](https://travis-ci.org/holehouse-lab/protfasta)
 
-## Release 0.1.6 (Feb 2021)
+## Release 0.1.9 (Sept 2021)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -39,6 +39,9 @@ And you're done. This also means you can now ``import`` and use **protfasta** in
 
 ## Errors and help
 For bug reports or errors please raise an issue on this github repository (see the [Issues](https://github.com/holehouse-lab/protfasta/issues) tab at the top).
+
+## Changelog
+* **0.1.9** (Sept 12th 2021) - added in robustness for whitespace in sequence files, which, bizarrely, was not present (i.e. added as an invalid residue type but can now be converted).
 
 
 ## Copyright

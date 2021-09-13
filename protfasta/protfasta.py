@@ -59,6 +59,7 @@ def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', alignment=
             * ``Z -> Q``
             * ``* -> <empty string>``
             * ``- -> <empty string>``
+            * ``" " -> <empty string`` (i.e. an empty space)
 
         HOWEVER, a customizable dictionary can be passed
 

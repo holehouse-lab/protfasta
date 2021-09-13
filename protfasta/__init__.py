@@ -148,12 +148,13 @@ def read_fasta(filename,
         ``invalid_sequence`` keyword. This is useful if downstream analysis assumes/requires fully standard amino acids. 
         This is also useful for removing '-'  from aligned sequences. The standard conversions used are:
         
-            * ``B -> N``
-            * ``U -> C``
-            * ``X -> G``
-            * ``Z -> Q``
-            * ``* -> <empty string>``
-            * ``- -> <empty string>``
+            * ``B   -> N``
+            * ``U   -> C``
+            * ``X   -> G``
+            * ``Z   -> Q``
+            * ``" " -> <empty string>`` (i.e. a whitespace character)
+            * ``*   -> <empty string>``
+            * ``-   -> <empty string>``
         However, if alternative definitions are needed they can be passed via the ``correction_dictionary`` keyword.
         The ``correction_dictionary`` should be a dictionary that maps sequences characters to some other character (ideally
         valid amino acid characters). In principle this could be used to perform arbitrary coarse-graining if a sequence...

@@ -13,7 +13,7 @@ It's often easies to see how to use code through some well-worked examples. Here
 
 
 ``read_fasta`` examples
-..........
+...........................
 
 Some possible exampls of reading FASTA files using protfasta:
 
@@ -79,7 +79,7 @@ a file is safe. To cancel any sanity checking and read in at maximum efficiency 
 
 
 ``write_fasta`` examples
-.............
+...........................
 
 
 .. code-block:: python

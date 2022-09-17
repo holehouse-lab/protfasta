@@ -103,8 +103,8 @@ def check_inputs(expect_unique_header,
 
 
     # check the invalid_sequence 
-    if invalid_sequence_action not in ['ignore','fail','remove','convert','convert-ignore']:
-        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail','remove','convert','convert-ignore'")
+    if invalid_sequence_action not in ['ignore','fail','remove','convert','convert-ignore', 'convert-remove']:
+        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail','remove','convert','convert-ignore', 'convert-remove'")
 
     # check the return_list
     if type(return_list) != bool:

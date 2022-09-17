@@ -116,7 +116,7 @@ def read_fasta(filename,
   
             * ``remove`` - duplicate sequences are removed, so there's only one copy of any duplicates (1st instance kept)     
     
-    invalid_sequence_action : ``'ignore'``, ``'fail'``, ``'remove'``, ``'convert'``, ``'convert-ignore'``
+    invalid_sequence_action : ``'ignore'``, ``'fail'``, ``'remove'``, ``'convert'``, ``'convert-ignore', ``'convert-remove'``
         [**Default = 'fail'**] Selector that determines how to deal with invalid sequences. If ``convert`` or ``convert-ignore`` are chosen, then conversion is completed with either the standard conversion table (shown under the ``correction_dictionary`` documentation) or with a custom conversion dictionary passed to ``correction_dictionary``. 
         Options are as follows: 
             * ``ignore``  - invalid sequences are completely ignored
@@ -128,6 +128,8 @@ def read_fasta(filename,
             * ``convert`` - invalid sequences are convert
 
             * ``convert-ignore`` - invalid sequences are converted to valid sequences and any remaining invalid residues are ignored
+
+            * ``convert-remove`` - invalid sequences are converted to valid sequences where possible, and any remaining sequences with invalid residues are removed
 
     alignment : bool
         [**Default = False**] Flag which - if set to true - the Fasta file is treated as containing alignments (with dashes) such that '-' characters are not
@@ -194,11 +196,32 @@ def read_fasta(filename,
     updated = _protfasta._deal_with_duplicate_sequences(updated, duplicate_sequence_action, verbose)
 
     # next decide how we deal with invalid amino acid sequences
-    updated = _protfasta._deal_with_invalid_sequences(updated, 
-                                                      invalid_sequence_action, 
-                                                      alignment=alignment,
-                                                      verbose=verbose, 
-                                                      correction_dictionary=correction_dictionary)
+
+    ##
+    ## If we're using the convert-remove action...
+    if invalid_sequence_action == 'convert-remove':
+
+        # first run a convert ignore
+        updated = _protfasta._deal_with_invalid_sequences(updated, 
+                                                          'convert-ignore',
+                                                          alignment=alignment,
+                                                          verbose=verbose, 
+                                                          correction_dictionary=correction_dictionary)
+
+        # then a remove on those that are left
+        updated = _protfasta._deal_with_invalid_sequences(updated, 
+                                                          'remove',
+                                                          alignment=alignment,
+                                                          verbose=verbose, 
+                                                          correction_dictionary=False)
+
+    else:
+        updated = _protfasta._deal_with_invalid_sequences(updated, 
+                                                          invalid_sequence_action,
+                                                          alignment=alignment,
+                                                          verbose=verbose, 
+                                                          correction_dictionary=correction_dictionary)
+        
 
     # If we wanted to write the final set of sequences we're going to use...:
     if output_filename:

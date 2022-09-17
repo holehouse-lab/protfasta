@@ -37,7 +37,7 @@ def _deal_with_invalid_sequences(raw, invalid_sequence_action='fail', alignment=
     raw : list
         List of lists, where each sub-list has two elements (0 = header, 1 = sequence)
 
-    invalid_sequence_action : {'fail','remove', 'ignore', 'convert', 'convert-ignore'}
+    invalid_sequence_action : {'fail', 'remove', 'ignore', 'convert', 'convert-ignore'}
         Keyword that defines the action taken upon encountering an invalid amino acid residue.
         default = 'fail'.
 

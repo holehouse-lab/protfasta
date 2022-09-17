@@ -10,7 +10,7 @@ from argparse import RawTextHelpFormatter
 
 
 VERSION_MAJ=0
-VERSION_MIN=3
+VERSION_MIN=4
 
 ## ===================================================================================================
 ##                              Main Script - hold onto your hat!
@@ -86,7 +86,7 @@ if __name__=="__main__":
     parser.add_argument("--non-unique-header", help="", action='store_true') 
     parser.add_argument("--duplicate-record", help="How to deal with duplicate records in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = fail)") 
     parser.add_argument("--duplicate-sequence", help="How to deal with duplicate sequences in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = ignore)") 
-    parser.add_argument("--invalid-sequence", help="How to deal with duplicate sequences in the file. Available options are shown\nbelow and described (default = fail)\n\nignore : skip invalid residues \nfail   : throw exception on invalud sequences \nremove : remove sequences with invalid characters \nconvert-all : Convert B->N, U->C, X->G, Z->Q, '*'->'',\n             '-'->'' (and throw exception if remaining invalid characters exist)\nconvert-res : same as convert-all except ignore alignment character '-'\nconvert-all-ignore - same as convert-all except invalid characters left over are ignored.\nconvert-res-ignore - same as convert-res except invalid characters left over are ignored.   ") 
+    parser.add_argument("--invalid-sequence", help="How to deal with duplicate sequences in the file. Available options are shown\nbelow and described (default = fail)\n\nignore : skip invalid residues \nfail   : throw exception on invalid sequences \nremove : remove sequences with invalid characters \nconvert-all : Convert B->N, U->C, X->G, Z->Q, '*'->'',\n             '-'->'' (and throw exception if remaining invalid characters exist)\nconvert-res : same as convert-all except ignore alignment character '-'\nconvert-all-ignore - same as convert-all except invalid characters left over are ignored.\nconvert-res-ignore - same as convert-res except invalid characters left over are ignored.   \nconvert-all-remove - same as convert-all except sequences with invalid characters are removed.\nconvert-res-remove - same as convert-res except sequences with invalid characters are removed.   ")  
     parser.add_argument("--number-lines", help="Number of lines for FASTA file") 
     parser.add_argument("--shortest-seq", help="Shortest sequence included ") 
     parser.add_argument("--longest-seq", help="Longest sequence included") 
@@ -145,7 +145,11 @@ if __name__=="__main__":
                                                             'convert-all',
                                                             'convert-res',
                                                             'convert-all-ignore',
-                                                            'convert-res-ignore'])
+                                                            'convert-res-ignore',
+                                                            'convert-all-remove',
+                                                            'convert-res-remove'])
+
+
         if invalid_sequence == 'convert-all':
             invalid_sequence = 'convert'
             correction_dict = {'B':'N',
@@ -174,6 +178,23 @@ if __name__=="__main__":
 
         elif invalid_sequence == 'convert-res-ignore':
             invalid_sequence = 'convert-ignore'
+            correction_dict = {'B':'N',
+                               'U':'C',
+                               'X':'G',
+                               'Z':'Q',
+                               '*':''}
+
+        elif invalid_sequence == 'convert-all-remove':
+            invalid_sequence = 'convert-remove'
+            correction_dict = {'B':'N',
+                               'U':'C',
+                               'X':'G',
+                               'Z':'Q',
+                               '*':'',
+                               '-':''}
+
+        elif invalid_sequence == 'convert-res-remove':
+            invalid_sequence = 'convert-remove'
             correction_dict = {'B':'N',
                                'U':'C',
                                'X':'G',

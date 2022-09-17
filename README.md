@@ -41,6 +41,8 @@ And you're done. This also means you can now ``import`` and use **protfasta** in
 For bug reports or errors please raise an issue on this github repository (see the [Issues](https://github.com/holehouse-lab/protfasta/issues) tab at the top).
 
 ## Changelog
+* **0.1.10** (Sept 17th 2022) - re-wrote code for checking duplicate sequence to make it O(1) instead of O(n) for number of sequences (:-/) and added convert-remove option for invalid_sequences
+
 * **0.1.9** (Sept 12th 2021) - added in robustness for whitespace in sequence files, which, bizarrely, was not present (i.e. added as an invalid residue type but can now be converted).
 
 

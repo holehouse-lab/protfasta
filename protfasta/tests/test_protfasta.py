@@ -184,6 +184,7 @@ def test_sequences_with_bad_chars():
     test_data_dir = protfasta._get_data('test_data')
     badchar_filename = '%s/test_data_with_bad_chars.fa'%(test_data_dir)
     nonstandard_filename = '%s/test_data_with_nonstandard_chars.fa'%(test_data_dir)
+    fixable_invalid = '%s/fixable_invalid.fasta'%(test_data_dir)
 
 
     # expect this to fail because invalid  characters are in here...
@@ -223,6 +224,14 @@ def test_sequences_with_bad_chars():
     # make sure we can remove sequences with bad chars regardless of if they're convertable or not
     assert len(protfasta.read_fasta(nonstandard_filename, invalid_sequence_action='remove')) == 0
     assert len(protfasta.read_fasta(badchar_filename, invalid_sequence_action='remove')) == 0
+
+    # make sure we can convert and remove 
+    assert len(protfasta.read_fasta(badchar_filename, invalid_sequence_action='convert-remove')) == 0
+
+
+    # make sure we can convert and not remove 
+    assert len(protfasta.read_fasta(fixable_invalid, invalid_sequence_action='convert-remove')) == 1
+
 
     #CD = {'-': '', '.': 'A', 'X':'Y'}
     CD = {'.':'A'}

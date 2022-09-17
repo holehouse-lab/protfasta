@@ -17,7 +17,7 @@ It contains two distinct components:
 This documentation provides an overeview of both components.
 
 Why did you build protfasta? Don't you have better things to do with your time?
-..............
+.................................................................................
 This is a reasonable question...
 
 Working with protein-based FASTA files is at the heart of a lot of what `the Holehouse lab <http://holehouse.wustl.edu/>`_ does. We had previously used a few different existing parsers but had found limitations with respect to certain features. Part of this came from the fact that many FASTA parsers can work with nucleotide or protein data. Given our bread and butter is protein sequences, we decided to build a parser explicitly for working with proteins. We also wanted the ability to deal with FASTA files with duplicate entries. Not necessarily because this is 'good', but for processing reasons being able to deal with this in-code is easier than having to sanitize ahead of time.
@@ -26,7 +26,7 @@ We built ``pfasta`` as a compact tool for working with FASTA files at the comman
 
 
 Will protfasta work with nucleotide-based FASTA files?
-.......................
+.........................................................
 In principle yes, but none of our testing suites are set up to rigerously explore this. However, there's no reason it shouldn't, although it may be less efficient that some other tools such as the excellent `pyfaidx <https://pypi.org/project/pyfaidx/>`_.
 
 
@@ -39,7 +39,7 @@ A note: protfasta was built to work with Python 3.7 or higher. However, it does 
 
 
 How to cite **protfasta**
-.........................
+...........................
 For now please just cite the `Github repository <https://github.com/holehouse-lab/protfasta/>`_ (including the date accessed). We are planning on putting out a short biorxiv paper (not submitting to a journal) for a DOI-ed reference, at which point this documentation will be updated accordingly.
 
 

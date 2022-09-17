@@ -265,13 +265,21 @@ def fail_on_duplicate_sequences(dataset):
 #
 #    
 def remove_duplicate_sequences(dataset):    
-    seqlist=[]
+
+    lookup = set([])
     updated=[]
+
     for entry in dataset:
-        if entry[1] in seqlist:
+
+        # if the sequence is in the lookup
+        # set
+        if entry[1] in lookup:
             continue
+
+        # else its not in the lookup set so 
+        # add it and then add to the updated list
         else:
-            seqlist.append(entry[1])
+            lookup.add(entry[1])
             updated.append(entry)
     return updated
             

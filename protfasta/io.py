@@ -21,6 +21,7 @@ from .protfasta_exceptions import ProtfastaException
 
 def check_inputs(expect_unique_header, 
                  header_parser, 
+                 check_header_parser,
                  duplicate_record_action, 
                  duplicate_sequence_action,
                  invalid_sequence_action, 
@@ -44,6 +45,9 @@ def check_inputs(expect_unique_header,
     header_parser : ?
         Checks it's a callable function that returns a single string (and takes a single
         string as the input argument)
+
+    check_header_parser : ?
+        Flag to turn on/off checking of header_parser
 
     duplicate_record_action : ?
         Checks its a string that matches one of a specific set of keywords
@@ -80,17 +84,18 @@ def check_inputs(expect_unique_header,
     if type(expect_unique_header) != bool:
         raise ProtfastaException("keyword 'expect_unique_header' must be a boolean")
 
-    # validate the header_parser 
-    if header_parser is not None:
-        if not callable(header_parser):
-            raise ProtfastaException("keyword 'header_parser' must be a function [tested with callable()]")
-        
-        try:
-            a = header_parser('this test string should work')
-            if type(a) != str:
-                raise ProtfastaException('Something went wrong when testing the header_parser function.\nFunction completed but return value was not a string')
-        except Exception as e:
-            raise ProtfastaException('Something went wrong when testing the header_parser function.\nException: %s'%str(e))
+    # validate the header_parser
+    if check_header_parser:
+        if header_parser is not None:
+            if not callable(header_parser):
+                raise ProtfastaException("keyword 'header_parser' must be a function [tested with callable()]")
+            
+            try:
+                a = header_parser('this test string should work')
+                if type(a) != str:
+                    raise ProtfastaException('Something went wrong when testing the header_parser function.\nFunction completed but return value was not a string')
+            except Exception as e:
+                raise ProtfastaException('Something went wrong when testing the header_parser function.\nException: %s'%str(e))
             
 
     # check the duplicates_record_action 

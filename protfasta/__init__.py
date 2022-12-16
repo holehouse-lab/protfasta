@@ -29,6 +29,7 @@ def _get_data(path):
 def read_fasta(filename, 
                expect_unique_header=True,
                header_parser=None,
+               check_header_parser=True,
                duplicate_sequence_action='ignore',
                duplicate_record_action='fail',
                invalid_sequence_action='fail',
@@ -92,9 +93,13 @@ def read_fasta(filename,
         whatever it returns will be used as the actual header as the files are parsed. This can be useful if you 
         know your FASTA header has a consistent format that you want to take advantage of. A function provided here MUST        
         **(1)** Take a single input argument (the header string) and **(2)** Return a single string.
-        When parsing this function the following test is applied
+        When parsing this function the following test is applied, unless ``check_header_parser`` is set to false.
             >>> return_string = header_parser('this test string should work')
-        Where ``return_string`` is tested to be a string. The function will show an exception if this test fails.
+        Where ``return_string`` is tested to be a string. The function will show an exception if this test fails and ``check_header_parser`` is set to true.
+
+    check_header_parser : bool
+        [**Default = True**] Flag which - if set to false - will not test if the header_parser function returns a valid string. 
+        This may lead to unexpected header values if the passed header_parser function is not well defined.
         
     duplicate_record_action : ``'ignore'``, ``'fail'``, ``'remove'``
         [**Default = 'fail'**] Selector that determines how to deal with duplicate entries. Note that duplicate records refers to
@@ -176,6 +181,7 @@ def read_fasta(filename,
     # keywords MUST be sanity checked in this function
     _io.check_inputs(expect_unique_header,
                      header_parser, 
+                     check_header_parser,
                      duplicate_record_action,
                      duplicate_sequence_action,
                      invalid_sequence_action, 

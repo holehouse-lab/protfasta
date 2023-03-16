@@ -256,7 +256,8 @@ def write_fasta(fasta_data, filename, linelength=60, verbose=False, append_to_fa
     -----------
     fasta_data : dict or list
         If a dictionary is passed then keys must be identifiers and the values are 
-        amino acid sequences. If a list is passed it must be a 
+        amino acid sequences. If a list is passed it must be a list where each element
+        contains two sub-elements, a header, and a sequence.
 
     filename: string
         Filename to write to. Should end with `.fasta` or `.fa` but this is not 
@@ -353,5 +354,3 @@ def write_fasta(fasta_data, filename, linelength=60, verbose=False, append_to_fa
             else:
                 fh.write('\n\n')
     
-    # close the file handle explicitely in case open_mode is 'a'
-    fh.close()

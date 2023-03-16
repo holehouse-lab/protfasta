@@ -29,6 +29,73 @@ def test_read_fasta_standard():
     assert x[test_data['test1'][0]] == test_data['test1'][1]
 
 
+def test_write_fasta_standard():
+    test_data_dir = protfasta._get_data('test_data')
+    
+    simple_filename='%s/testset_1.fasta'%(test_data_dir)
+
+    ## Phase 1 test simple
+    x = protfasta.read_fasta(simple_filename)
+    assert len(x) == 9
+
+    # first check this works
+    protfasta.write_fasta(x, 'outdata/test_out_1.fasta')
+
+    input_data = protfasta.read_fasta('outdata/test_out_1.fasta')
+
+    for k in input_data:
+        assert input_data[k] == x[k]
+
+
+        
+def test_write_fasta_list():
+    test_data_dir = protfasta._get_data('test_data')
+    
+    simple_filename='%s/testset_1.fasta'%(test_data_dir)
+
+    ## Phase 1 test simple
+    x = protfasta.read_fasta(simple_filename, return_list=True)
+    assert len(x) == 9
+
+    # first check this works
+    protfasta.write_fasta(x, 'outdata/test_out_1.fasta')
+
+    input_data = protfasta.read_fasta('outdata/test_out_1.fasta', return_list=True)
+
+    for idx in range(len(input_data)):
+        assert input_data[idx][0] == x[idx][0]
+        assert input_data[idx][1] == x[idx][1]
+
+
+def test_write_fasta_with_append():
+    test_data_dir = protfasta._get_data('test_data')
+    
+    simple_filename='%s/testset_1.fasta'%(test_data_dir)
+
+    ## Phase 1 test simple
+    x = protfasta.read_fasta(simple_filename)
+    assert len(x) == 9
+
+    # first check this works
+    protfasta.write_fasta(x, 'outdata/test_out_2.fasta')
+
+    added_seqs = {'added_sequence':'ASPAPSPAPSPAPSPAS'}
+
+    protfasta.write_fasta(added_seqs, 'outdata/test_out_2.fasta', append_to_fasta=True)
+
+    input_data = protfasta.read_fasta('outdata/test_out_2.fasta')
+
+    # should now be 10 cos we added a sequence
+    assert len(input_data) == 10
+
+    for k in input_data:
+        if k in added_seqs:
+            assert added_seqs[k] == input_data[k]
+        else:
+            assert x[k] == input_data[k]
+    
+
+
 def test_expect_unique_header_toggle():
     
     test_data_dir = protfasta._get_data('test_data')    

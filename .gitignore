@@ -9,6 +9,9 @@ __pycache__/
 # C extensions
 *.so
 
+# special to avoid including out data from tests
+protfasta/tests/outdata/*fasta
+
 # Distribution / packaging
 .Python
 env/

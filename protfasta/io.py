@@ -91,11 +91,12 @@ def check_inputs(expect_unique_header,
                 raise ProtfastaException("keyword 'header_parser' must be a function [tested with callable()]")
             
             try:
-                a = header_parser('this test string should work')
+                tst_string = 'this test string should work'
+                a = header_parser(tst_string)
                 if type(a) != str:
                     raise ProtfastaException('Something went wrong when testing the header_parser function.\nFunction completed but return value was not a string')
             except Exception as e:
-                raise ProtfastaException('Something went wrong when testing the header_parser function.\nException: %s'%str(e))
+                raise ProtfastaException(f'Something went wrong when testing the header_parser function using string: {tst_string}.\nMaybe you should set check_header_parser to False? \nException: {e}')
             
 
     # check the duplicates_record_action 

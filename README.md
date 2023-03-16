@@ -3,7 +3,7 @@ protfasta
 [//]: # (Badges)
 [![Build Status](https://travis-ci.org/holehouse-lab/protfasta.svg?branch=master)](https://travis-ci.org/holehouse-lab/protfasta)
 
-## Release 0.1.11 (Sept 2022)
+## Release 0.1.12 (March 2023)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -13,7 +13,6 @@ protfasta - a robust parser for protein-based FASTA files.
 For all documentation see [https://protfasta.readthedocs.io/en/latest/](https://protfasta.readthedocs.io/en/latest/).
 
 For code see [https://github.com/holehouse-lab/protfasta](https://github.com/holehouse-lab/protfasta).
-
 
 ## Installation
 
@@ -41,6 +40,9 @@ And you're done. This also means you can now ``import`` and use **protfasta** in
 For bug reports or errors please raise an issue on this github repository (see the [Issues](https://github.com/holehouse-lab/protfasta/issues) tab at the top).
 
 ## Changelog
+* **0.1.12** (March 2023) - integrated in check_header_parser flag via pull request from the amazing [Friedlab](https://friedlab.com/) !
+* Added in `append_to_fasta` flag so you can append to an existing FASTA file (thanks Ryan!)
+
 * **0.1.11** (Sept 17th 2022) - re-wrote code for checking duplicate sequence to make it O(1) instead of O(n) for number of sequences (:-/) and added convert-remove option for invalid_sequences
 
 * **0.1.9** (Sept 12th 2021) - added in robustness for whitespace in sequence files, which, bizarrely, was not present (i.e. added as an invalid residue type but can now be converted).

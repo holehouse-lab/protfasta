@@ -66,7 +66,8 @@ def test_header_parser():
         return "asas"
 
     def d_bad2(s):
-        return 1
+        return s.split('|')[1]
+
     
     x = protfasta.read_fasta(simple_filename, header_parser=d)
     assert len(x) == 9
@@ -90,6 +91,18 @@ def test_header_parser():
 
     with pytest.raises(ProtfastaException):
         assert protfasta.read_fasta(simple_filename, header_parser=d_bad2)
+
+
+    # test a bad header with the new check_header_parser flag (March 2023 - thanks Friedlab!)
+    # bool only
+    with pytest.raises(ProtfastaException):
+        a =  protfasta.read_fasta(simple_filename, header_parser=d_bad2, check_header_parser=True)
+
+    a =  protfasta.read_fasta(simple_filename, header_parser=d_bad2, check_header_parser=False)
+
+
+
+
 
 
 

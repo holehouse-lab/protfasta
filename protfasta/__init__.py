@@ -240,7 +240,7 @@ def read_fasta(filename,
 
 # ------------------------------------------------------------------
 #
-def write_fasta(fasta_data, filename, linelength=60, verbose=False):
+def write_fasta(fasta_data, filename, linelength=60, verbose=False, append_to_fasta=False):
     """
     Simple function that takes a dictionary of key to sequence values
     and writes out a valid FASTA file. No return type, but writes a file 
@@ -260,6 +260,13 @@ def write_fasta(fasta_data, filename, linelength=60, verbose=False):
         [**Default = 60**] Length of line to be written for sequence (note this does
         not effect the header line. 60 is default used by UniProt. If set to 0, None or 
         False no line-length limit is used. Note ``linelength`` must be > 5.
+
+    append_to_fasta : bool
+        Whether to append to a fasta file that already exists. If this is set to True,
+        if the file does not exist, protfasta will create a new file. However, if the
+        file does exist, protfasta will simply append additional fasta entries to the
+        existing file. 
+        Default=False
 
     Returns 
     ----------
@@ -296,8 +303,15 @@ def write_fasta(fasta_data, filename, linelength=60, verbose=False):
         if linelength < 5:
             linelength = 5
 
-    # open the file handler - will overwrite if a file exists
-    with open(filename,'w') as fh:
+    # set the 'mode' for open. If append_to_file==False, use 'w' and overwrite
+    # existing .fasta file. Otherwise use 'a' and add to existing file if it exists.
+    if append_to_fasta==False:
+        open_mode='w'
+    else:
+        open_mode='a'
+    
+    # open the file handle.
+    with open(filename, open_mode) as fh:
 
         # for each entry
         for entry in fasta_data:
@@ -332,3 +346,6 @@ def write_fasta(fasta_data, filename, linelength=60, verbose=False):
                 fh.write('\n')
             else:
                 fh.write('\n\n')
+    
+    # close the file handle explicitely in case open_mode is 'a'
+    fh.close()

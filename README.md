@@ -3,7 +3,7 @@ protfasta
 [//]: # (Badges)
 [![Build Status](https://travis-ci.org/holehouse-lab/protfasta.svg?branch=master)](https://travis-ci.org/holehouse-lab/protfasta)
 
-## Release 0.1.12 (March 2023)
+## Release 0.1.13 (January 2024)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -40,6 +40,8 @@ And you're done. This also means you can now ``import`` and use **protfasta** in
 For bug reports or errors please raise an issue on this github repository (see the [Issues](https://github.com/holehouse-lab/protfasta/issues) tab at the top).
 
 ## Changelog
+* **0.1.13** (January 2023) - Added upper limit of Python 3.11 to accomodate clash between versioneer and Python 3.12. Ultimately we'll move to versioningit for release versioning (as we have done internally) but need to make sure we have a robust protocol for this switch and then do this for ALL tools....
+
 * **0.1.12** (March 2023) - integrated in check_header_parser flag via pull request from the amazing [Friedlab](https://friedlab.com/) !
 * Added in `append_to_fasta` flag so you can append to an existing FASTA file (thanks Ryan!)
 

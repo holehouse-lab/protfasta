@@ -30,7 +30,7 @@ setup(
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
     license='MIT',
-    python_requires='>=3.6',
+    python_requires=">=3.7,<3.12.0",          # Python version restrictions; update to < 3.12 in Jan 2024
 
     # Which Python importable modules should be included when your package is installed
     # Handled automatically by setuptools. Use 'exclude' to prevent some specific

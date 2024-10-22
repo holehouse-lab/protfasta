@@ -1,0 +1,58 @@
+[build-system]
+
+requires = ["setuptools>=61", "versioningit~=2.0"]
+build-backend = "setuptools.build_meta"
+
+
+# define project info
+[project]
+name = "protfasta"
+dynamic = ["version"]
+description = "Lightweight package for reading and writing FASTA files."
+authors = [
+    {name = "Alex Holehouse", email = "alex.holehouse@wustl.edu"}
+]
+license = {text = "MIT"}
+requires-python = ">=3.7"
+
+[project.optional-dependencies]
+test = [
+  "pytest>=6.1.2",
+]
+
+# define all the command-line scripts; example left, but you
+# can delete this section if none.
+[project.scripts]
+pfasta = "protfasta.scripts.pfasta:main"
+
+[tool.setuptools]
+zip-safe = false
+include-package-data = true 
+
+[tool.setuptools.packages.find]
+namespaces = true
+where = ["."]
+include = ["protfasta", "protfasta.*"]  # Discover all sub-packages inside the main package
+
+[tool.setuptools.package-data]
+protfasta = [
+    "py.typed"
+]
+
+[tool.versioningit]
+default-version = "1+unknown"
+
+[tool.versioningit.format]
+distance = "{base_version}+{distance}.{vcs}{rev}"
+dirty = "{base_version}+{distance}.{vcs}{rev}.dirty"
+distance-dirty = "{base_version}+{distance}.{vcs}{rev}.dirty"
+
+[tool.versioningit.vcs]
+# The method key:
+method = "git"  # <- The method name
+# Parameters to pass to the method:
+match = ["*"]
+default-tag = "1.0.0"
+
+[tool.versioningit.write]
+file = "protfasta/_version.py"

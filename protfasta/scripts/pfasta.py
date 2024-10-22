@@ -3,14 +3,13 @@
 ###############################################
 
 import random
+import sys
 from os import path
 import protfasta
 import argparse 
 from argparse import RawTextHelpFormatter
+from protfasta import __version__ as VERSION_MAJ
 
-
-VERSION_MAJ=0
-VERSION_MIN=4
 
 ## ===================================================================================================
 ##                              Main Script - hold onto your hat!
@@ -75,13 +74,15 @@ def print_statistical_summary(data):
 ####################################################################################################
 #
 #
-if __name__=="__main__":
+def main():
 
     dsc='pfasta is a simple command-line tool for parsing, sanitizing, and manipulating\nprotein-based FASTA files. It is the command-line utility from the package protfasta'
 
     parser = argparse.ArgumentParser(description=dsc,formatter_class=RawTextHelpFormatter)
 
-    parser.add_argument("filename", help='Input FASTA file')
+    # note nargs means EITHER 0 or 1 arguments are accepted
+    parser.add_argument("filename", nargs='?', help='Input FASTA file')
+
     parser.add_argument("-o", help="Output fasta file (is created)") 
     parser.add_argument("--non-unique-header", help="", action='store_true') 
     parser.add_argument("--duplicate-record", help="How to deal with duplicate records in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = fail)") 
@@ -95,17 +96,25 @@ if __name__=="__main__":
     parser.add_argument("--no-outputfile", help="Prevents pfasta from writing an output file ",action='store_true') 
     parser.add_argument("--silent", help="Generate no output at all to STDOUT", action='store_true') 
     parser.add_argument("--remove-comma-from-header", help="Flag that, if set, commas in FASTA headers will be replaced with ';' characters. Useful if you have code that parses FASTA headers as part of a CSV file", action='store_true') 
-    
+    parser.add_argument("--version", help="Flag that, if set, means we just print the version and exit.", action='store_true') 
+
     args = parser.parse_args()
     silent = args.silent
 
+    if args.version:
+        print(VERSION_MAJ)
+        sys.exit(0)
+
+    # this behavior phenocopies the default behavior if we did not allow --version to overide
+    if not args.filename:
+        parser.error("pfasta: error: the following arguments are required: filename")
 
     
     if not silent:
 
         print('')
         print('........................')
-        print('pfasta (%i.%i)'%(VERSION_MAJ, VERSION_MIN))
+        print(f'pfasta version {VERSION_MAJ}')  
         print('Please report bugs to:\nhttps://github.com/holehouse-lab/protfasta')
         print('........................')
 
@@ -286,10 +295,10 @@ if __name__=="__main__":
     if len(data) < 1:
         if longest or shortest:
             stdout('[INFO]: 0 sequences found that match the longes/shortest filtering criterion',silent)
-            exit(0)
+            sys.exit(0)
         else:
             stdout('[INFO]: 0 sequences found that match the longes/shortest filtering criterion',silent)
-            exit(0)
+            sys.exit(0)
 
 
     if random_subsample:

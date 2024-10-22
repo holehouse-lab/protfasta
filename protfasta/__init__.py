@@ -1,19 +1,15 @@
 """
 """
 # Add imports here
-from . import utilities as _utilities
-from . import io as _io
-from ._configs import STANDARD_AAS, STANDARD_CONVERSION
-from . import protfasta as _protfasta
+from protfasta import utilities as _utilities
+from protfasta import io as _io
+from protfasta._configs import STANDARD_AAS, STANDARD_CONVERSION
+from protfasta import protfasta as _protfasta
 import os
-from . protfasta_exceptions import ProtfastaException
+from protfasta.protfasta_exceptions import ProtfastaException
 
-# Handle versioneer
-from ._version import get_versions
-versions = get_versions()
-__version__ = versions['version']
-__git_revision__ = versions['full-revisionid']
-del get_versions, versions
+# Handle versioning with versioningit
+from ._version import __version__
 
 
 _ROOT = os.path.abspath(os.path.dirname(__file__))

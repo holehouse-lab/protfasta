@@ -9,6 +9,8 @@ __pycache__/
 # C extensions
 *.so
 
+protfasta/_version.py
+
 # special to avoid including out data from tests
 protfasta/tests/outdata/*fasta
 

@@ -3,7 +3,9 @@ protfasta
 [//]: # (Badges)
 [![Build Status](https://travis-ci.org/holehouse-lab/protfasta.svg?branch=master)](https://travis-ci.org/holehouse-lab/protfasta)
 
-## Release 0.1.14 (October 2024)
+
+
+## Release 0.1.15 (October 2024)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -40,8 +42,9 @@ And you're done. This also means you can now ``import`` and use **protfasta** in
 For bug reports or errors please raise an issue on this github repository (see the [Issues](https://github.com/holehouse-lab/protfasta/issues) tab at the top).
 
 ## Changelog
-* **0.1.14** (October 2024) - Re-wrote build chain and versioning to use `pyproject.toml` and [versioningit](https://pypi.org/project/versioningit/). protfasta should now support Python beyond 3.12. About bloody time. 
+* **0.1.14**  and **0.1.15** (October 2024) - Re-wrote build chain and versioning to use `pyproject.toml` and [versioningit](https://pypi.org/project/versioningit/). protfasta should now support Python beyond 3.12. About bloody time. 
 	* Added `--version` flag to pfasta
+	* Messed around a bit with tags to ensure we had a tagged version compatible with them. 
 
 * **0.1.13** (January 2023) - Added upper limit of Python 3.11 to accomodate clash between versioneer and Python 3.12. Ultimately we'll move to versioningit for release versioning (as we have done internally) but need to make sure we have a robust protocol for this switch and then do this for ALL tools....
 

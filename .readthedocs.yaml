@@ -7,7 +7,7 @@ python:
   install:
     - requirements: docs/requirements.txt
     - method: pip
-      path: .	
+      path: .
 
 # Commands to execute after dependency installation
 build:

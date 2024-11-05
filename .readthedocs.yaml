@@ -8,7 +8,6 @@ build:
     python: "3.9"
   commands:
     - versioningit write
-	
 
 # Build from the docs/ directory with Sphinx
 sphinx:

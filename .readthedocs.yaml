@@ -10,7 +10,7 @@ python:
 
 # Use the "readthedocs" environment to ensure all dependencies are installed before building
 build:
-  os: ubuntu-20.04		
+  os: ubuntu-20.04
   environment:
     READTHEDOCS: "True"
 

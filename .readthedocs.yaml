@@ -12,8 +12,6 @@ build:
   os: ubuntu-20.04
   tools:
     python: "3.9"    
-  environment:
-    READTHEDOCS: "True"
 
 # Sphinx configuration
 sphinx:

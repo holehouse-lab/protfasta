@@ -8,6 +8,12 @@ from protfasta import protfasta as _protfasta
 import os
 from protfasta.protfasta_exceptions import ProtfastaException
 
+
+# Generate _version.py if missing and in the Read the Docs environment
+if os.getenv("READTHEDOCS") == "True":
+    import versioningit
+    versioningit.write_version_file("protfasta/_version.py")
+
 # Handle versioning with versioningit
 from ._version import __version__
 

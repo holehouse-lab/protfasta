@@ -172,9 +172,4 @@ texinfo_documents = [
 
 # -- Extension configuration -------------------------------------------------
 
-import os
-print(os.getenv('READTHEDOCS'))
-import error_on_this
-if os.getenv('READTHEDOCS') == 'True':
-    import versioningit
-    versioningit.write_version_file('protfasta/_version.py')
+

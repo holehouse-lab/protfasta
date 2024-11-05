@@ -11,11 +11,11 @@ from protfasta.protfasta_exceptions import ProtfastaException
 
 # Generate _version.py if missing and in the Read the Docs environment
 if os.getenv("READTHEDOCS") == "True":    
-    print(os.getcwd())
-    import versioningit
-    
-    #with open('protfasta/_version.py')
-    #versioningit.write_version_file("protfasta/_version.py")
+    if not os.path.isfile('../protfasta/_version.py'):
+        import versioningit
+        version = versioningit.get_version()
+        with open('../protfasta/_version.py','w') as fh:
+            fh.write(version+"\n")
 
 # Handle versioning with versioningit
 from ._version import __version__

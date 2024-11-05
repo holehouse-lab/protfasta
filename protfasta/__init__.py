@@ -13,7 +13,7 @@ from protfasta.protfasta_exceptions import ProtfastaException
 if os.getenv("READTHEDOCS") == "True":    
     if not os.path.isfile('../protfasta/_version.py'):
         import versioningit
-        version = versioningit.get_version()
+        version = versioningit.get_version('../')
         with open('../protfasta/_version.py','w') as fh:
             fh.write(version+"\n")
 

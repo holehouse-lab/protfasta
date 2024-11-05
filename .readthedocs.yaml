@@ -4,7 +4,6 @@ version: 2
 
 # Specify the Python version and requirements file
 python:
-  version: "3.9"
   install:
     - requirements: docs/requirements.txt
 

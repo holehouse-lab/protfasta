@@ -2,20 +2,16 @@
 
 version: 2
 
-# Specify Python version and dependencies
+# Specify the Python version and requirements file
 python:
+  version: "3.9"
   install:
     - requirements: docs/requirements.txt
-    - method: pip
-      path: .
 
-# Commands to execute after dependency installation
+# Use the "readthedocs" environment to ensure all dependencies are installed before building
 build:
-  os: ubuntu-20.04
-  tools: 
-    python: "3"
-  commands:
-    - versioningit write > protfasta/_version.py  # Generate _version.py after dependencies are installed
+  environment:
+    READTHEDOCS: "True"
 
 # Sphinx configuration
 sphinx:

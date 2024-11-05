@@ -171,3 +171,8 @@ texinfo_documents = [
 
 
 # -- Extension configuration -------------------------------------------------
+
+import os
+if os.getenv('READTHEDOCS') == 'True':
+    import versioningit
+    versioningit.write_version_file('protfasta/_version.py')

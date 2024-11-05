@@ -6,6 +6,13 @@ build:
   os: "ubuntu-20.04"
   tools:
     python: "3.9"
+
+# Explicitly set the Python version and requirements file
+python:
+  install:
+    - requirements: docs/requirements.txt
+
+build:
   commands:
     - versioningit . > protfasta/_version.py
 
@@ -14,7 +21,3 @@ build:
 sphinx:
   configuration: docs/conf.py
 
-# Explicitly set the Python version and requirements file
-python:
-  install:
-    - requirements: docs/requirements.txt

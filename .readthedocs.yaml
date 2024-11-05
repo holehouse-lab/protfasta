@@ -7,17 +7,11 @@ build:
   tools:
     python: "3.9"
 
-# Explicitly set the Python version and requirements file
-python:
-  install:
-    - requirements: docs/requirements.txt
-
-build:
-  commands:
-    - versioningit . > protfasta/_version.py
-
-
-# Specify Sphinx configuration
+# Build from the docs/ directory with Sphinx
 sphinx:
   configuration: docs/conf.py
 
+# Explicitly set the version of Python and its requirements
+python:
+  install:
+    - requirements: docs/requirements.txt

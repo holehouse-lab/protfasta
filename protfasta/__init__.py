@@ -8,14 +8,23 @@ from protfasta import protfasta as _protfasta
 import os
 from protfasta.protfasta_exceptions import ProtfastaException
 
-
+## 
+## VERSIONINGIT HACK
+##
 # Generate _version.py if missing and in the Read the Docs environment
 if os.getenv("READTHEDOCS") == "True":    
     if not os.path.isfile('../protfasta/_version.py'):
         import versioningit
+        
+        # build the version
         version = versioningit.get_version('../')
+        
+        # define the version string
+        version_string = f'__version__ = "{version}"\n'
+        
+        # write the version string
         with open('../protfasta/_version.py','w') as fh:
-            fh.write(version+"\n")
+            fh.write(version_string)
 
 # Handle versioning with versioningit
 from ._version import __version__

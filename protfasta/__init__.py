@@ -17,19 +17,20 @@ if os.getenv("READTHEDOCS") == "True":
         import versioningit
         
         # build the version
-        version = versioningit.get_version('../')
+        __version__ = versioningit.get_version('../')
         
-        # define the version string
-        version_string = f'__version__ = "{version}"\n'
+    else:
+        from ._version import __version__
         
-        # write the version string
-        with open('../protfasta/_version.py','w') as fh:
-            fh.write(version_string)
+   
+else:
+    # Handle versioning with versioningit
+    from ._version import __version__
+    
+    
 ## ------------------------------------------------------------
 
 
-# Handle versioning with versioningit
-from ._version import __version__
 
 
 _ROOT = os.path.abspath(os.path.dirname(__file__))

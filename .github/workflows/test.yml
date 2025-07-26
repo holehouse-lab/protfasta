@@ -7,11 +7,11 @@ on:
 
 jobs:
   test:
-    name: Tox test on ${{ matrix.python-version }}
+    name: Tox test on ${{ matrix.toxenv }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        toxenv: ["py310", "py311", "py312"]
 
     steps:
       - uses: actions/checkout@v4
@@ -19,10 +19,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.toxenv[2:5] }}
 
       - name: Install tox
         run: pip install tox
 
       - name: Run tox
-        run: tox -e py${{ matrix.python-version.replace('.', '') }}
+        run: tox -e ${{ matrix.toxenv }}

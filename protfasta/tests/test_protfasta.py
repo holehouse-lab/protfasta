@@ -8,6 +8,14 @@ from protfasta.protfasta_exceptions import ProtfastaException
 import pytest
 import sys
 
+# added to facilitate dynamic path loading 
+from pathlib import Path
+
+# get the path to the current file
+HERE = Path(__file__).parent
+
+
+
 def test_protfasta_imported():
     """Sample test, will always pass so long as import statement worked"""
     assert "protfasta" in sys.modules
@@ -39,9 +47,9 @@ def test_write_fasta_standard():
     assert len(x) == 9
 
     # first check this works
-    protfasta.write_fasta(x, 'outdata/test_out_1.fasta')
+    protfasta.write_fasta(x, f'{HERE}/outdata/test_out_1.fasta')
 
-    input_data = protfasta.read_fasta('outdata/test_out_1.fasta')
+    input_data = protfasta.read_fasta(f'{HERE}/outdata/test_out_1.fasta')
 
     for k in input_data:
         assert input_data[k] == x[k]
@@ -58,9 +66,9 @@ def test_write_fasta_list():
     assert len(x) == 9
 
     # first check this works
-    protfasta.write_fasta(x, 'outdata/test_out_1.fasta')
+    protfasta.write_fasta(x, f'{HERE}/outdata/test_out_1.fasta')
 
-    input_data = protfasta.read_fasta('outdata/test_out_1.fasta', return_list=True)
+    input_data = protfasta.read_fasta(f'{HERE}/outdata/test_out_1.fasta', return_list=True)
 
     for idx in range(len(input_data)):
         assert input_data[idx][0] == x[idx][0]
@@ -77,13 +85,13 @@ def test_write_fasta_with_append():
     assert len(x) == 9
 
     # first check this works
-    protfasta.write_fasta(x, 'outdata/test_out_2.fasta')
+    protfasta.write_fasta(x, f'{HERE}/outdata/test_out_2.fasta')
 
     added_seqs = {'added_sequence':'ASPAPSPAPSPAPSPAS'}
 
-    protfasta.write_fasta(added_seqs, 'outdata/test_out_2.fasta', append_to_fasta=True)
+    protfasta.write_fasta(added_seqs, f'{HERE}/outdata/test_out_2.fasta', append_to_fasta=True)
 
-    input_data = protfasta.read_fasta('outdata/test_out_2.fasta')
+    input_data = protfasta.read_fasta(f'{HERE}/outdata/test_out_2.fasta')
 
     # should now be 10 cos we added a sequence
     assert len(input_data) == 10

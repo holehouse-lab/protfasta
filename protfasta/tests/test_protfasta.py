@@ -10,8 +10,6 @@ import sys
 
 # added to facilitate dynamic path loading 
 from pathlib import Path
-
-# get the path to the current file
 HERE = Path(__file__).parent
 
 

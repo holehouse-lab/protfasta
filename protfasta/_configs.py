@@ -18,6 +18,7 @@ Be kind to each other.
 """
 
 STANDARD_CONVERSION = {'B':'N',
+                       'O':'K',
                        'U':'C',
                        'X':'G',
                        'Z':'Q',
@@ -26,6 +27,7 @@ STANDARD_CONVERSION = {'B':'N',
                        ' ':''}
 
 STANDARD_CONVERSION_WITH_GAP = {'B':'N',
+                                'O':'K',
                                 'U':'C',
                                 'X':'G',
                                 'Z':'Q',

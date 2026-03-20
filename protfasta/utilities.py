@@ -1,9 +1,14 @@
+"""
+Internal utility functions for sequence validation, conversion, and
+duplicate handling used by the protfasta processing pipeline.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
 from .protfasta_exceptions import ProtfastaException
 from ._configs import STANDARD_CONVERSION, STANDARD_CONVERSION_WITH_GAP, STANDARD_AAS, STANDARD_AAS_WITH_GAP
-
-# To do: Need to fully annotate the docstring for these
-# internal functions
-#
 
 
 
@@ -13,9 +18,24 @@ from ._configs import STANDARD_CONVERSION, STANDARD_CONVERSION_WITH_GAP, STANDAR
 ####################################################################################################
 #
 #    
-def build_custom_dictionary(additional_dictionary):
-    """
+def build_custom_dictionary(additional_dictionary: dict[str, str]) -> dict[str, str]:
+    """Build a correction dictionary by merging defaults with custom entries.
 
+    Starts from the built-in ``STANDARD_CONVERSION`` table and overlays
+    *additional_dictionary* on top, so caller-supplied mappings take
+    precedence over the defaults.
+
+    Parameters
+    ----------
+    additional_dictionary : dict[str, str]
+        Mapping of non-standard characters to their desired
+        replacements.  Keys already present in the default table
+        will be overwritten.
+
+    Returns
+    -------
+    dict[str, str]
+        The merged correction dictionary.
     """
 
     final_dict = {}
@@ -34,37 +54,40 @@ def build_custom_dictionary(additional_dictionary):
 ####################################################################################################
 #
 #    
-def convert_to_valid(seq, correction_dictionary=None, alignment=False):
-    """
-    Function that converts non-standard amino acid residues to standard ones.
-    Specifically:
+def convert_to_valid(
+    seq: str,
+    correction_dictionary: Optional[dict[str, str]] = None,
+    alignment: bool = False,
+) -> str:
+    """Convert non-standard amino-acid characters to standard ones.
 
-    B -> N
-    U -> C
-    X -> G
-    Z -> Q
-    ' ' -> <empty string> (i.e. an empty space)
-    * -> <empty string>
-    - -> <empty string> (ONLY if alignment is False)
+    Default conversions (when no *correction_dictionary* is supplied):
 
-    By default this alters the underlying sequence. If you wish to return a copy
-    of the altered sequence instead set copy=True. Otherwise the underlying sequence
-    is altered 
-
+    * ``B`` -> ``N``
+    * ``U`` -> ``C``
+    * ``X`` -> ``G``
+    * ``Z`` -> ``Q``
+    * ``' '`` -> ``''`` (space removed)
+    * ``*`` -> ``''``
+    * ``-`` -> ``''`` (only when *alignment* is ``False``)
 
     Parameters
-    ---------------
-    seq : string 
-        Amino acid sequence
+    ----------
+    seq : str
+        Amino acid sequence to convert.
 
-    alignment : bool
-        If True then dashes are treated as OK and ignored.
-    
+    correction_dictionary : dict[str, str] or None, optional
+        Custom mapping of characters to replacements.  When provided
+        this is used instead of the built-in table.
+
+    alignment : bool, optional
+        When ``True``, dashes (``'-'``) are kept as valid gap
+        characters.  Default ``False``.
+
     Returns
-    ---------------
-    string
-        Returns the same string with non-standard residues converted according 
-        
+    -------
+    str
+        The sequence with non-standard residues replaced.
     """
 
     if correction_dictionary:
@@ -87,28 +110,29 @@ def convert_to_valid(seq, correction_dictionary=None, alignment=False):
 ####################################################################################################
 #
 #    
-def check_sequence_is_valid(seq, alignment=False):
-    """
+def check_sequence_is_valid(
+    seq: str,
+    alignment: bool = False,
+) -> tuple[bool, str | int]:
+    """Check whether every character in *seq* is a standard amino acid.
 
     Parameters
-    --------------
+    ----------
     seq : str
-        Amino acid sequence
+        Amino acid sequence to validate.
 
-    alignment : bool
-        Flag that defines if this alignment sequence rules
-        should be applied or not.
+    alignment : bool, optional
+        When ``True``, dashes (``'-'``) are accepted as valid gap
+        characters.  Default ``False``.
 
     Returns
-    ------------
-    Tuple
-        Returns a tuple of size 2 where 
-        
-        element 0 is a boolean (True or False) that flags if the 
-        sequence was valid (True) or not (False).
+    -------
+    tuple[bool, str | int]
+        A two-element tuple:
 
-        element 1 is a value that will return as the invalid amino acid
-        (if sequence is invalid) OR if it's a valid sequence will be 0
+        * ``(True, 0)`` if the sequence is entirely valid.
+        * ``(False, <char>)`` where ``<char>`` is the first invalid
+          character encountered.
     """
 
     if alignment == True:
@@ -128,7 +152,34 @@ def check_sequence_is_valid(seq, alignment=False):
 ####################################################################################################
 #
 #    
-def convert_invalid_sequences(dataset, correction_dictionary=None, alignment=False):
+def convert_invalid_sequences(
+    dataset: list[list[str]],
+    correction_dictionary: Optional[dict[str, str]] = None,
+    alignment: bool = False,
+) -> tuple[list[list[str]], int]:
+    """Convert invalid residues in every sequence in *dataset*.
+
+    Each sequence is passed through :func:`convert_to_valid`.  The
+    dataset is modified in place and also returned.
+
+    Parameters
+    ----------
+    dataset : list[list[str]]
+        Parsed FASTA data -- a list of ``[header, sequence]`` pairs.
+
+    correction_dictionary : dict[str, str] or None, optional
+        Custom character-replacement mapping.  ``None`` uses the
+        built-in default table.
+
+    alignment : bool, optional
+        When ``True``, dashes are preserved.  Default ``False``.
+
+    Returns
+    -------
+    tuple[list[list[str]], int]
+        A tuple of the (mutated) dataset and the number of sequences
+        that were altered.
+    """
 
     count = 0
     for idx in range(0,len(dataset)):
@@ -145,10 +196,25 @@ def convert_invalid_sequences(dataset, correction_dictionary=None, alignment=Fal
 ####################################################################################################
 #
 #    
-def remove_invalid_sequences(dataset, alignment=False):
+def remove_invalid_sequences(
+    dataset: list[list[str]],
+    alignment: bool = False,
+) -> list[list[str]]:
+    """Return only entries whose sequences are fully valid.
 
-    # this single line iterates through the dataset, and for each sequence only
-    # only adds to to the growing new list IF that sequence is valid
+    Parameters
+    ----------
+    dataset : list[list[str]]
+        Parsed FASTA data -- a list of ``[header, sequence]`` pairs.
+
+    alignment : bool, optional
+        When ``True``, dashes are treated as valid.  Default ``False``.
+
+    Returns
+    -------
+    list[list[str]]
+        Filtered list containing only entries with valid sequences.
+    """
     return [element for element in dataset if check_sequence_is_valid(element[1], alignment)[0]]
      
 
@@ -156,9 +222,25 @@ def remove_invalid_sequences(dataset, alignment=False):
 ####################################################################################################
 #
 #    
-def fail_on_invalid_sequences(dataset, alignment=False):
+def fail_on_invalid_sequences(
+    dataset: list[list[str]],
+    alignment: bool = False,
+) -> None:
+    """Raise if any sequence in *dataset* contains invalid residues.
 
-    # cycle over each entry and fail if a sequence is invald!
+    Parameters
+    ----------
+    dataset : list[list[str]]
+        Parsed FASTA data -- a list of ``[header, sequence]`` pairs.
+
+    alignment : bool, optional
+        When ``True``, dashes are treated as valid.  Default ``False``.
+
+    Raises
+    ------
+    ProtfastaException
+        On the first sequence that contains an invalid character.
+    """
     for entry in dataset:
 
         (status, info) = check_sequence_is_valid(entry[1], alignment)
@@ -171,8 +253,30 @@ def fail_on_invalid_sequences(dataset, alignment=False):
 ####################################################################################################
 #
 #    
-def convert_list_to_dictionary(raw_list, verbose=False):
+def convert_list_to_dictionary(
+    raw_list: list[list[str]],
+    verbose: bool = False,
+) -> dict[str, str]:
+    """Convert a list of ``[header, sequence]`` pairs into a dictionary.
 
+    When *verbose* is ``True``, warnings are printed for overwritten
+    duplicate headers and a summary line is emitted.
+
+    Parameters
+    ----------
+    raw_list : list[list[str]]
+        Parsed FASTA data -- a list of ``[header, sequence]`` pairs.
+
+    verbose : bool, optional
+        If ``True``, print duplicate-header warnings to stdout.
+        Default ``False``.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping of header to sequence.  If duplicate headers exist,
+        the last occurrence wins.
+    """
     if verbose:
         return_dict={}
         warning_count=0
@@ -198,8 +302,23 @@ def convert_list_to_dictionary(raw_list, verbose=False):
 ####################################################################################################
 #
 #    
-def fail_on_duplicates(dataset):
-    lookup={}
+def fail_on_duplicates(dataset: list[list[str]]) -> None:
+    """Raise if any exact duplicate record exists in *dataset*.
+
+    A duplicate record is defined as two entries with the same header
+    **and** the same sequence.
+
+    Parameters
+    ----------
+    dataset : list[list[str]]
+        Parsed FASTA data -- a list of ``[header, sequence]`` pairs.
+
+    Raises
+    ------
+    ProtfastaException
+        On the first duplicate record found.
+    """
+    lookup: dict[str, str] = {}
     for entry in dataset:
         if entry[0] not in lookup:
             lookup[entry[0]] = entry[1]
@@ -212,13 +331,25 @@ def fail_on_duplicates(dataset):
 ####################################################################################################
 #
 #    
-def remove_duplicates(dataset):
+def remove_duplicates(dataset: list[list[str]]) -> list[list[str]]:
+    """Remove exact duplicate records, keeping the first occurrence.
 
+    A duplicate record is defined as two entries with the same header
+    **and** the same sequence.  Entries that share a header but have
+    different sequences are *not* considered duplicates.
 
-    # note - the lookup dictionary is ONLY used to keep track of what we have/have not
-    # yet seen and is not returned. The updated list will be returned
-    lookup={}
-    updated = []
+    Parameters
+    ----------
+    dataset : list[list[str]]
+        Parsed FASTA data -- a list of ``[header, sequence]`` pairs.
+
+    Returns
+    -------
+    list[list[str]]
+        De-duplicated list, preserving original order.
+    """
+    lookup: dict[str, list[str]] = {}
+    updated: list[list[str]] = []
 
     # for each entry in the dataset
     for entry in dataset:
@@ -252,8 +383,20 @@ def remove_duplicates(dataset):
 ####################################################################################################
 #
 #    
-def fail_on_duplicate_sequences(dataset):    
-    seq_to_header={}
+def fail_on_duplicate_sequences(dataset: list[list[str]]) -> None:
+    """Raise if any two entries share the same sequence.
+
+    Parameters
+    ----------
+    dataset : list[list[str]]
+        Parsed FASTA data -- a list of ``[header, sequence]`` pairs.
+
+    Raises
+    ------
+    ProtfastaException
+        On the first pair of entries that share a sequence.
+    """
+    seq_to_header: dict[str, str] = {}
     for entry in dataset:
         if entry[1] in seq_to_header:
             raise ProtfastaException('Found duplicate sequences associated with the following headers\n1. %s\n\n2. %s' % (seq_to_header[entry[1]], entry[0]))
@@ -264,10 +407,21 @@ def fail_on_duplicate_sequences(dataset):
 ####################################################################################################
 #
 #    
-def remove_duplicate_sequences(dataset):    
+def remove_duplicate_sequences(dataset: list[list[str]]) -> list[list[str]]:
+    """Remove entries with duplicate sequences, keeping the first occurrence.
 
-    lookup = set([])
-    updated=[]
+    Parameters
+    ----------
+    dataset : list[list[str]]
+        Parsed FASTA data -- a list of ``[header, sequence]`` pairs.
+
+    Returns
+    -------
+    list[list[str]]
+        Filtered list with unique sequences, preserving original order.
+    """
+    lookup: set[str] = set()
+    updated: list[list[str]] = []
 
     for entry in dataset:
 

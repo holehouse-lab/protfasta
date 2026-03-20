@@ -1,11 +1,21 @@
 """
+protfasta - A simple but robust FASTA parser explicitly for protein sequences.
+
+This package provides two user-facing functions:
+
+* :func:`read_fasta` -- read and sanitize a FASTA file.
+* :func:`write_fasta` -- write sequences to a FASTA file.
 """
-# Add imports here
+
+from __future__ import annotations
+
+import os
+from typing import Callable, Optional, Union
+
 from protfasta import utilities as _utilities
 from protfasta import io as _io
 from protfasta._configs import STANDARD_AAS, STANDARD_CONVERSION
 from protfasta import protfasta as _protfasta
-import os
 from protfasta.protfasta_exceptions import ProtfastaException
 
 ## ------------------------------------------------------------
@@ -25,164 +35,161 @@ else:
 
 
 _ROOT = os.path.abspath(os.path.dirname(__file__))
-def _get_data(path):    
-    """
-    This function is used for getting the absolute path for loading
-    test data. Pay no attention to the code behind the curtain.
-    
+
+
+def _get_data(path: str) -> str:
+    """Return the absolute path to a bundled data directory.
+
+    Used internally to locate test data shipped with the package.
+
+    Parameters
+    ----------
+    path : str
+        Relative path (under the package ``data/`` directory) to resolve.
+
+    Returns
+    -------
+    str
+        Absolute filesystem path.
     """
     return os.path.join(_ROOT, 'data', path)
 
 
-def read_fasta(filename, 
-               expect_unique_header=True,
-               header_parser=None,
-               check_header_parser=True,
-               duplicate_sequence_action='ignore',
-               duplicate_record_action='fail',
-               invalid_sequence_action='fail',
-               alignment=False,
-               return_list=False,               
-               output_filename=None,
-               correction_dictionary=None,
-               verbose=False):    
+def read_fasta(
+    filename: str,
+    expect_unique_header: bool = True,
+    header_parser: Optional[Callable[[str], str]] = None,
+    check_header_parser: bool = True,
+    duplicate_sequence_action: str = 'ignore',
+    duplicate_record_action: str = 'fail',
+    invalid_sequence_action: str = 'fail',
+    alignment: bool = False,
+    return_list: bool = False,
+    output_filename: Optional[str] = None,
+    correction_dictionary: Optional[dict[str, str]] = None,
+    verbose: bool = False,
+) -> Union[dict[str, str], list[list[str]]]:
+    """Read a FASTA file, sanitize sequences, and return a dict or list.
 
-    """
-    ``read_fasta`` is the main one of of only two user-facing functions associated with **protfasta**. 
-    It is designed as a catch-all function for reading in a FASTA file, performing sanitization, 
-    and returning a list or dictionary of sequences and their associated headers.
+    This is the primary entry point for **protfasta**.  At its simplest::
 
-    There are a number of parameters which can be included, but as one might expect the simplest
-    usage is just
-    
-    >>> x = read_fasta(filename)
-    
-    This will read in the file associated with filename and return a dictionary, where the keys
-    are the FASTA file headers and the values are the amino acid sequences associated with each.
-    
-    Note that as of python 3.7 the order in which one adds items to a dictionary is guaranteed
-    to be the order in which they're retrieved, so cycling through the resulting dictionary will
-    in fact allow you to cycle through in order. 
+        sequences = read_fasta('proteins.fasta')
 
-    In addition to this simple usage, there are a number of keywords which are described in depth
-    below and allow additional processing to be complete. 
+    returns a dictionary whose keys are FASTA headers and whose values
+    are amino-acid sequences.  Many optional parameters allow automatic
+    handling of duplicates, invalid residues, alignment gap characters,
+    and more.
 
-    There is an order of options in which sanitization occurs:
-    
-    1. File is read in, custom headers are parsed, and unique headers are tested (if ``expect_unique = True``)
-    
+    Sanitization is applied in the following order:
 
-    2. Check for duplicate records and respond appropriately (**optional**)
-    
-    3. Check for duplicate sequences and respond appropriately (**optional**)
-    
-    4. Invalid sequences dealt with (**optional**)
-    
-    5. Final set of sequences/headers written to a new FASTA file (**optional**)
-    
-    6. Dictionary/list returned to user.
-    
-    Understanding there is a specific order is important when considering what options to
-    pass. If a set of options are incompatible, this will be caught before the file is read.
+    1. File is read, custom headers are parsed, and header uniqueness is
+       checked (when *expect_unique_header* is ``True``).
+    2. Duplicate records are processed (*duplicate_record_action*).
+    3. Duplicate sequences are processed (*duplicate_sequence_action*).
+    4. Invalid residues are processed (*invalid_sequence_action*).
+    5. Final sequences are optionally written to *output_filename*.
+    6. A dictionary or list is returned to the caller.
+
+    Incompatible option combinations are caught before the file is read.
 
     Parameters
     ----------
+    filename : str
+        Path to the FASTA file to read.
 
-    expect_unique_header : bool
-        [**Default = True**] Should the function expect each header to be unique? In general this is true for FASTA files, 
-        but this is strictly not guarenteed. If this is set to True and a duplicate header is found
-        then this means an error will be thrown. If it's set to false duplicate headers are dealt with,
-        although for this to work ``return_list`` must also be set to True. Note that this won't happen
-        automatically to avoid the scenario where you expect a dictionary to return and actually get
-        a list. 
+    expect_unique_header : bool, optional
+        If ``True`` (default), an exception is raised when a duplicate
+        header is encountered during parsing.  Set to ``False`` when
+        the file is known to contain duplicate headers -- in that case
+        *return_list* should typically be ``True`` as well so that no
+        entries are silently lost via dictionary-key overwriting.
 
-    header_parser : function
-        [**Default = None**] ``header_parser`` allows a user-defined function that will be fed the FASTA header and 
-        whatever it returns will be used as the actual header as the files are parsed. This can be useful if you 
-        know your FASTA header has a consistent format that you want to take advantage of. A function provided here MUST        
-        **(1)** Take a single input argument (the header string) and **(2)** Return a single string.
-        When parsing this function the following test is applied, unless ``check_header_parser`` is set to false.
-            >>> return_string = header_parser('this test string should work')
-        Where ``return_string`` is tested to be a string. The function will show an exception if this test fails and ``check_header_parser`` is set to true.
+    header_parser : callable or None, optional
+        A function ``(str) -> str`` applied to every raw header before
+        any uniqueness checks.  Useful for extracting accession IDs
+        from structured headers.  When *check_header_parser* is
+        ``True`` (the default) the function is smoke-tested with the
+        string ``'this test string should work'`` before parsing
+        begins.
 
-    check_header_parser : bool
-        [**Default = True**] Flag which - if set to false - will not test if the header_parser function returns a valid string. 
-        This may lead to unexpected header values if the passed header_parser function is not well defined.
-        
-    duplicate_record_action : ``'ignore'``, ``'fail'``, ``'remove'``
-        [**Default = 'fail'**] Selector that determines how to deal with duplicate entries. Note that duplicate records refers to
-        entries in the fasta file where both the sequence and the header are identical. duplicate_record_action
-        is only relevant keyword when expect_unique_header is False.
-        Options are as follows:        
-            * ``ignore``  - duplicate entries are allowed and ignored
+    check_header_parser : bool, optional
+        If ``True`` (default), *header_parser* is tested with a dummy
+        string before the file is read to catch obvious problems early.
+        Set to ``False`` to skip this pre-check.
 
-            * ``fail``    - duplicate entries cause parsing to fail and throw an exception
-  
-            * ``remove`` - duplicate entries are removed, so there's only one copy of any duplicates     
-    
-    duplicate_sequence_action : ``'ignore'``, ``'fail'``, ``'remove'``
-        [**Default = 'ignore'**] Selector that determines how to deal with duplicate sequences. This completely ignores the header
-        and simply asks is two sequences are duplicated (or not). 
-            * ``ignore``  - duplicate sequences are allowed and ignored
+    duplicate_record_action : str, optional
+        How to handle records that are identical in both header **and**
+        sequence.  Default ``'fail'``.
 
-            * ``fail``    - duplicate sequences cause parsing to fail and throw an exception
-  
-            * ``remove`` - duplicate sequences are removed, so there's only one copy of any duplicates (1st instance kept)     
-    
-    invalid_sequence_action : ``'ignore'``, ``'fail'``, ``'remove'``, ``'convert'``, ``'convert-ignore', ``'convert-remove'``
-        [**Default = 'fail'**] Selector that determines how to deal with invalid sequences. If ``convert`` or ``convert-ignore`` are chosen, then conversion is completed with either the standard conversion table (shown under the ``correction_dictionary`` documentation) or with a custom conversion dictionary passed to ``correction_dictionary``. 
-        Options are as follows: 
-            * ``ignore``  - invalid sequences are completely ignored
+        * ``'ignore'``  -- keep all occurrences (requires
+          *expect_unique_header* = ``False``).
+        * ``'fail'``    -- raise an exception.
+        * ``'remove'``  -- keep only the first occurrence.
 
-            * ``fail``    - invalid sequence cause parsing to fail and throw an exception
-  
-            * ``remove`` - invalid sequences are removed
+    duplicate_sequence_action : str, optional
+        How to handle entries that share the same sequence regardless of
+        header.  Default ``'ignore'``.
 
-            * ``convert`` - invalid sequences are convert
+        * ``'ignore'``  -- keep all occurrences.
+        * ``'fail'``    -- raise an exception.
+        * ``'remove'``  -- keep only the first occurrence.
 
-            * ``convert-ignore`` - invalid sequences are converted to valid sequences and any remaining invalid residues are ignored
+    invalid_sequence_action : str, optional
+        How to handle sequences containing non-standard amino-acid
+        characters.  Default ``'fail'``.
 
-            * ``convert-remove`` - invalid sequences are converted to valid sequences where possible, and any remaining sequences with invalid residues are removed
+        * ``'ignore'``         -- silently accept invalid residues.
+        * ``'fail'``           -- raise an exception.
+        * ``'remove'``         -- discard the entire sequence.
+        * ``'convert'``        -- convert non-standard residues using
+          *correction_dictionary* (or built-in defaults); fail if any
+          unconvertible residues remain.
+        * ``'convert-ignore'`` -- convert what can be converted, then
+          ignore any remaining invalid residues.
+        * ``'convert-remove'`` -- convert what can be converted, then
+          discard sequences that still contain invalid residues.
 
-    alignment : bool
-        [**Default = False**] Flag which - if set to true - the Fasta file is treated as containing alignments (with dashes) such that '-' characters are not
-        treated as invalid or converted. Works in concert with other flags.  
-    
-    return_list : bool 
-        [**Default = False**] Flag that tells the function to return a list of 2-mer lists (where position 0 is the header
-        and position 1 the sequence). If you have duplicate identical headers which you want to deal with, this is required.
+    alignment : bool, optional
+        If ``True``, dash (``'-'``) characters are treated as valid gap
+        characters and are neither flagged as invalid nor converted.
+        Default ``False``.
 
-    output_filename : string 
-        [**Default = None**] If you are performing sanitization of the input file it is often useful to write out the 
-        actual set of sequences you'll be analyzing, so you have a persistent copy of this data 
-        for further analysis later on. If you provide a string to output filename it will cause
-        a new FASTA file to be written with the final set of sequences returned.
+    return_list : bool, optional
+        If ``True``, return a list of ``[header, sequence]`` pairs
+        instead of a dictionary.  Required when duplicate headers are
+        present and you want to keep all of them.  Default ``False``.
 
-    correction_dictionary : dict
-        [**Default = None**] **protfasta** can automatically correct non-standard amino acids to standard amino acids using the
-        ``invalid_sequence`` keyword. This is useful if downstream analysis assumes/requires fully standard amino acids. 
-        This is also useful for removing '-'  from aligned sequences. The standard conversions used are:
-        
-            * ``B   -> N``
-            * ``U   -> C``
-            * ``X   -> G``
-            * ``Z   -> Q``
-            * ``" " -> <empty string>`` (i.e. a whitespace character)
-            * ``*   -> <empty string>``
-            * ``-   -> <empty string>``
-        However, if alternative definitions are needed they can be passed via the ``correction_dictionary`` keyword.
-        The ``correction_dictionary`` should be a dictionary that maps sequences characters to some other character (ideally
-        valid amino acid characters). In principle this could be used to perform arbitrary coarse-graining if a sequence...
-        
-    verbose : bool 
-        [**Default = False**] If set to True, **protfasta** will print out information as it works its way through reading and
-        parsing FASTA files. This can be useful for diagnosis.
+    output_filename : str or None, optional
+        If provided, the final (sanitized) set of sequences is written
+        to a new FASTA file at this path before the function returns.
+
+    correction_dictionary : dict or None, optional
+        A mapping of non-standard characters to replacement strings used
+        when *invalid_sequence_action* involves conversion.  When
+        ``None``, the built-in table is used:
+
+        * ``B`` -> ``N``, ``U`` -> ``C``, ``X`` -> ``G``, ``Z`` -> ``Q``
+        * ``*`` -> ``''``, ``-`` -> ``''``, ``' '`` -> ``''``
+
+        A custom dictionary **replaces** the built-in table entirely.
+
+    verbose : bool, optional
+        If ``True``, informational messages are printed to stdout
+        during each processing step.  Default ``False``.
 
     Returns
-    ----------        
-        Return type is *list* or *dict*
-        If ``return_list`` is set to ``True`` then the function returns a list of lists. In each sublist contains two elements, where the first is the FASTA record header and the second the sequence. The order of FASTA records will match the order they were read in from the FASTA file. If ``return_list`` is ``False`` then the function returns a dictionary where the keys are the FASTA record heades and the values are the sequences. NOTE the order of keys will match the order that the FASTA file was read in IF the Python version is 3.7 or higher.
+    -------
+    dict[str, str] or list[list[str]]
+        When *return_list* is ``False`` (default), a dictionary mapping
+        headers to sequences.  When ``True``, a list of two-element
+        lists ``[header, sequence]``.  Ordering always matches the
+        original file.
 
+    Raises
+    ------
+    ProtfastaException
+        If any validation check fails or incompatible options are
+        provided.
     """
 
     # first we sanity check all of the inputs provided. NOTE. If additional functionality is added, new
@@ -254,40 +261,54 @@ def read_fasta(filename,
 
 # ------------------------------------------------------------------
 #
-def write_fasta(fasta_data, filename, linelength=60, verbose=False, append_to_fasta=False):
-    """
-    Simple function that takes a dictionary of key to sequence values
-    and writes out a valid FASTA file. No return type, but writes a file 
-    to disk according to the location defined by the variable ``filename``.
-    
+def write_fasta(
+    fasta_data: Union[dict[str, str], list[list[str]]],
+    filename: str,
+    linelength: Union[int, bool, None] = 60,
+    verbose: bool = False,
+    append_to_fasta: bool = False,
+) -> None:
+    """Write sequences to a FASTA file.
+
+    Accepts sequence data as either a dictionary (header -> sequence) or
+    a list of ``[header, sequence]`` pairs and writes a standards-
+    compliant FASTA file to *filename*.
+
     Parameters
-    -----------
-    fasta_data : dict or list
-        If a dictionary is passed then keys must be identifiers and the values are 
-        amino acid sequences. If a list is passed it must be a list where each element
-        contains two sub-elements, a header, and a sequence.
-
-    filename: string
-        Filename to write to. Should end with `.fasta` or `.fa` but this is not 
-        enforced.
-
-    linelength : int
-        [**Default = 60**] Length of line to be written for sequence (note this does
-        not effect the header line. 60 is default used by UniProt. If set to 0, None or 
-        False no line-length limit is used. Note ``linelength`` must be > 5.
-
-    append_to_fasta : bool
-        Whether to append to a fasta file that already exists. If this is set to True,
-        if the file does not exist, protfasta will create a new file. However, if the
-        file does exist, protfasta will simply append additional fasta entries to the
-        existing file. 
-        Default=False
-
-    Returns 
     ----------
-    None 
-        No return value is provided but a new FASTA file is written to disk
+    fasta_data : dict[str, str] or list[list[str]]
+        Sequence data.  If a dictionary, keys are headers and values are
+        amino-acid sequences.  If a list, each element must be a
+        two-element list ``[header, sequence]``.
 
+    filename : str
+        Destination file path.  Should conventionally end with
+        ``.fasta`` or ``.fa``, but this is not enforced.
+
+    linelength : int, bool, or None, optional
+        Maximum number of residues per line in the output.  Default is
+        ``60`` (the UniProt convention).  Values below ``5`` are clamped
+        to ``5``.  Set to ``0``, ``None``, or ``False`` to write each
+        sequence on a single line.
+
+    verbose : bool, optional
+        Currently unused; reserved for future diagnostic output.
+        Default ``False``.
+
+    append_to_fasta : bool, optional
+        If ``True``, new entries are appended to *filename* if it
+        already exists; otherwise the file is created.  If ``False``
+        (default), any existing file is overwritten.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ProtfastaException
+        If a sequence is empty or a list element does not contain
+        exactly two items.
     """
 
     # This part of code means we can pass either a dictionary or a list of lists

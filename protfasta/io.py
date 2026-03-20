@@ -1,7 +1,8 @@
 """
-protfasta - A simple but robuts FASTA parser explicitly for protein sequences.
+protfasta - A simple but robust FASTA parser explicitly for protein sequences.
 
-This file handles the input and output, including validation of input arguments
+This module handles FASTA file I/O and validation of input arguments passed
+to the public ``read_fasta`` API.
 
 .............................................................................
 protfasta was developed by the Holehouse lab
@@ -12,72 +13,90 @@ https://github.com/holehouse-lab/protfasta
 
 Licensed under the MIT license.
 
-Be kind to each other. 
+Be kind to each other.
 
 """
+
+from __future__ import annotations
+
+from typing import Callable, Optional
 
 from .protfasta_exceptions import ProtfastaException
 
 
-def check_inputs(expect_unique_header, 
-                 header_parser, 
-                 check_header_parser,
-                 duplicate_record_action, 
-                 duplicate_sequence_action,
-                 invalid_sequence_action, 
-                 alignment,
-                 return_list, 
-                 output_filename, 
-                 verbose,
-                 correction_dictionary):
-    
-    """
-    Function that performs sanity validation for all input arguments. If arguments do not match the expected
-    behaviour then this function will throw an exception.
+def check_inputs(
+    expect_unique_header: bool,
+    header_parser: Optional[Callable[[str], str]],
+    check_header_parser: bool,
+    duplicate_record_action: str,
+    duplicate_sequence_action: str,
+    invalid_sequence_action: str,
+    alignment: bool,
+    return_list: bool,
+    output_filename: Optional[str],
+    verbose: bool,
+    correction_dictionary: Optional[dict[str, str]],
+) -> None:
+    """Validate all input arguments passed to :func:`read_fasta`.
 
-    If new functionality is included, input must be santitized in this function!
+    This is a stateless guard function: it either returns ``None`` when
+    every argument is acceptable, or raises a
+    :class:`~protfasta.protfasta_exceptions.ProtfastaException` describing
+    the first problem it encounters.
+
+    If new functionality is added to ``read_fasta``, the corresponding
+    keyword must be validated here.
 
     Parameters
-    ------------
-    expect unique : ?
-        Checks it's a bool
+    ----------
+    expect_unique_header : bool
+        Whether every FASTA header in the file is expected to be unique.
 
-    header_parser : ?
-        Checks it's a callable function that returns a single string (and takes a single
-        string as the input argument)
+    header_parser : callable or None
+        A user-supplied function that accepts a single header string and
+        returns a transformed header string.  ``None`` means no custom
+        parsing.
 
-    check_header_parser : ?
-        Flag to turn on/off checking of header_parser
+    check_header_parser : bool
+        When ``True``, ``header_parser`` is tested with a dummy string
+        before the file is read to catch obvious problems early.
 
-    duplicate_record_action : ?
-        Checks its a string that matches one of a specific set of keywords
+    duplicate_record_action : str
+        How to handle duplicate records.  Must be one of
+        ``'ignore'``, ``'fail'``, or ``'remove'``.
 
-    duplicate_sequence_action : ?
-        Checks its a string that matches one of a specific set of keywords
+    duplicate_sequence_action : str
+        How to handle duplicate sequences.  Must be one of
+        ``'ignore'``, ``'fail'``, or ``'remove'``.
 
-    invalid_sequence : ?
-        Checks it's a string that matches a specific keyword
+    invalid_sequence_action : str
+        How to handle invalid amino-acid characters.  Must be one of
+        ``'ignore'``, ``'fail'``, ``'remove'``, ``'convert'``,
+        ``'convert-ignore'``, or ``'convert-remove'``.
 
-    alignment : ?
-        Checks that this is a bool
+    alignment : bool
+        Whether the file should be treated as an alignment (dashes are
+        kept as valid gap characters).
 
-    return_list : ?
-        Checks it's a bool
+    return_list : bool
+        Whether the caller expects a list (``True``) or dict (``False``)
+        return type.
 
-    output_filename : ?
-        Checks it's a string
+    output_filename : str or None
+        Optional path to write the final processed sequences to.
 
-    verbose : ?
-        Checks it's a bool
+    verbose : bool
+        Whether to emit informational messages to stdout.
 
-    correction_dictionary : ?
-        Checks it's a dictionary
+    correction_dictionary : dict or None
+        Optional mapping of non-standard characters to their
+        replacements (e.g. ``{'B': 'N'}``).  Overrides the built-in
+        conversion table when provided.
 
-    Returns
-    ---------
-
-        No return - stateless function that checks things are OK
-    
+    Raises
+    ------
+    ProtfastaException
+        If any argument fails validation.
     """
 
     # check the expect_unique_header keyword
@@ -143,42 +162,53 @@ def check_inputs(expect_unique_header,
 
 ####################################################################################################
 #
-#    
-def internal_parse_fasta_file(filename, expect_unique_header=True, header_parser=None, verbose=False):
-    """
-    Base level FASTA file parser. Header lines must begin with a ">" and be a single line. 
-    No other requirements are necessary.
+#
+def internal_parse_fasta_file(
+    filename: str,
+    expect_unique_header: bool = True,
+    header_parser: Optional[Callable[[str], str]] = None,
+    verbose: bool = False,
+) -> list[list[str]]:
+    """Low-level FASTA file parser.
 
-    This is not the function that we expect users to use, but if they wanted to they could.
+    Reads a FASTA file from disk and returns its contents as a list of
+    ``[header, sequence]`` pairs.  Header lines must begin with ``">"``
+    and occupy a single line; sequence data may span multiple lines.
+
+    This is an internal helper -- most callers should use
+    :func:`protfasta.read_fasta` instead.
 
     Parameters
-    ------------
+    ----------
+    filename : str
+        Absolute or relative path to a FASTA file.
 
-    filename : string
-        String representing the absolute or relative path of a FASTA file.
+    expect_unique_header : bool, optional
+        If ``True`` (the default), a
+        :class:`~protfasta.protfasta_exceptions.ProtfastaException` is
+        raised when a duplicate header is encountered.
 
-    expect_unique_header : boolean {True}
-        Should the function expect each header to be unique? In general this is true for FASTA files, 
-        but this is strictly not guarenteed. 
+    header_parser : callable or None, optional
+        A function that accepts a raw header string and returns a
+        (possibly transformed) header string.  ``None`` means headers
+        are used as-is (minus the leading ``">"``).  The function must
+        accept exactly one ``str`` argument and return a ``str``.
 
-    header_parser : function {None}
-        header_parser is a user-defined function that will be fed the FASTA header and whatever it returns
-        will be used as the actual header as the files are parsed. This can be useful if you know your FASTA
-        header has a consistent format that you want to take advantage of.
-
-        A function provided here MUST:
-            1. Take a single input argument (the header string)
-            2. Return a single string
-
-    verbose : boolean {False}
-        If set to True, protfasta will print out information as it works its way through reading and
-        parsing FASTA files. This can be useful for diagnosis.
+    verbose : bool, optional
+        If ``True``, informational messages are printed to stdout
+        during parsing.
 
     Returns
-    ----------
-    list of lists
-        Retrns a list of lists, where each sublist contains a FASTA header and a sequence
+    -------
+    list[list[str]]
+        A list of two-element lists ``[header, sequence]`` in the order
+        they appear in the file.  Sequences are upper-cased.
 
+    Raises
+    ------
+    ProtfastaException
+        If the file cannot be found or a duplicate header is detected
+        (when *expect_unique_header* is ``True``).
     """
         
     # read in the file...
@@ -198,44 +228,52 @@ def internal_parse_fasta_file(filename, expect_unique_header=True, header_parser
 
 ####################################################################################################
 #
-#    
-def _parse_fasta_all(content, expect_unique_header=True, header_parser=None, verbose=False):
-    """
-    Internal function that actually performs parsing. Note that at present, the only code within
-    protfasta calls ``_parse_fasta_all`` with mode = 'list'.
-    
+#
+def _parse_fasta_all(
+    content: list[str],
+    expect_unique_header: bool = True,
+    header_parser: Optional[Callable[[str], str]] = None,
+    verbose: bool = False,
+) -> list[list[str]]:
+    """Parse raw FASTA-file lines into ``[header, sequence]`` pairs.
+
+    This is the core parsing engine used by
+    :func:`internal_parse_fasta_file`.  It operates on an already-read
+    list of lines rather than a file path, making it easy to test in
+    isolation.
 
     Parameters
-    -----------
-    content : list
-        A list generated by reading in a file (i.e. each line corresponds to a consecutive line 
-        in a file).
-   
-    expect_unique_header : boolean {True}
-        Should the function expect each header to be unique? In general this is true for FASTA files, 
-        but this is strictly not guarenteed. 
-
-    header_parser : function {None}
-        header_parser is a user-defined function that will be fed the FASTA header and whatever it returns
-        will be used as the actual header as the files are parsed. This can be useful if you know your FASTA
-        header has a consistent format that you want to take advantage of.
-
-        A function provided here MUST:
-            1. Take a single input argument (the header string)
-            2. Return a single string
-
-    verbose : boolean {False}
-        If set to True, protfasta will print out information as it works its way through reading and
-        parsing FASTA files. This can be useful for diagnosis.
-
-
-    Returns 
     ----------
-    list or dict 
-        Depending on the ``mode`` selector either a list or a dictionary of sequences is returned. In the case
-        of a dictionary, keys are FASTA headers and values are sequences. In the case of a lists, each element
-        is a two-position sub-list, where element 0 is the header and element 1 is the sequence.    
+    content : list[str]
+        Lines read from a FASTA file (e.g. via ``file.readlines()``).
+        Each element is expected to be a single line, optionally
+        terminated by a newline character.
 
+    expect_unique_header : bool, optional
+        If ``True`` (the default), a
+        :class:`~protfasta.protfasta_exceptions.ProtfastaException` is
+        raised when a duplicate header is encountered.
+
+    header_parser : callable or None, optional
+        A function ``(str) -> str`` used to transform raw header strings.
+        ``None`` means headers are used verbatim (minus the leading
+        ``">"`` character).
+
+    verbose : bool, optional
+        If ``True``, prints the number of recovered sequences to stdout.
+
+    Returns
+    -------
+    list[list[str]]
+        A list of two-element lists ``[header, sequence]``.  Sequences
+        are upper-cased and concatenated from any multi-line runs in the
+        input.
+
+    Raises
+    ------
+    ProtfastaException
+        If *expect_unique_header* is ``True`` and a duplicate header is
+        found.
     """
 
     

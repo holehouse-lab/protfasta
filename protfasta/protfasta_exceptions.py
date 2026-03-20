@@ -1,20 +1,24 @@
 """
-protfasta_exceptions.py
+Custom exception classes for protfasta.
 
-Part of the *protfasta* package: a hyper robuts FASTA parser explicitly for 
-protein sequences
+.............................................................................
+protfasta was developed by the Holehouse lab
+     Original release March 2020
 
-Developed by the Holehouse lab 
+Question/comments/concerns? Raise an issue on github:
+https://github.com/holehouse-lab/protfasta
 
-Copyright 2020
+Licensed under the MIT license.
+
+Be kind to each other.
 
 """
 
 
-
 class ProtfastaException(Exception):
-    """
-    Custom exception that is raised when things go wrong
+    """Exception raised for protfasta-specific errors.
 
+    Inherits from :class:`Exception` and is used throughout the package
+    to signal invalid input, duplicate records, unrecognised keyword
+    arguments, and other domain-specific error conditions.
     """
-    pass 

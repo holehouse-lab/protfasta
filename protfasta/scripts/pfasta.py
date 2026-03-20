@@ -1,12 +1,20 @@
 #!/usr/bin/env python
+"""Command-line interface for protfasta.
 
-###############################################
+``pfasta`` is a small CLI tool for parsing, sanitizing, and
+manipulating protein FASTA files.  It is installed as an entry-point
+when the *protfasta* package is installed.
+"""
+
+from __future__ import annotations
 
 import random
 import sys
 from os import path
+from typing import Optional, Callable, Union
+
 import protfasta
-import argparse 
+import argparse
 from argparse import RawTextHelpFormatter
 from protfasta import __version__ as VERSION_MAJ
 
@@ -16,7 +24,16 @@ from protfasta import __version__ as VERSION_MAJ
 ## ===================================================================================================
 
 
-def stdout(msg, silent):
+def stdout(msg: str, silent: bool) -> None:
+    """Print *msg* to stdout unless *silent* is ``True``.
+
+    Parameters
+    ----------
+    msg : str
+        Message to print.
+    silent : bool
+        If ``True``, suppress output.
+    """
     if not silent:
         print(msg)
         
@@ -24,23 +41,61 @@ def stdout(msg, silent):
 ####################################################################################################
 #
 #
-def exit_error(msg):
-    print('[FATAL ERROR]: %s'%(msg))
+def exit_error(msg: str) -> None:
+    """Print a fatal-error message and terminate the process.
+
+    Parameters
+    ----------
+    msg : str
+        Error description shown to the user.
+    """
+    print('[FATAL ERROR]: %s' % (msg))
     exit(1)
 
 ####################################################################################################
 #
 #
-def validate(instring, option):
+def validate(instring: str, option: list[str]) -> str:
+    """Validate and normalise a CLI option against allowed values.
+
+    Parameters
+    ----------
+    instring : str
+        The value supplied by the user.
+    option : list[str]
+        Acceptable lower-case values.
+
+    Returns
+    -------
+    str
+        The lower-cased input if it is valid; otherwise the process
+        exits via :func:`exit_error`.
+    """
     if instring.lower() not in option:
-        exit_error('Could not find [%s] in list of valid options [%s]'%(instring, str(option)))
+        exit_error('Could not find [%s] in list of valid options [%s]' % (instring, str(option)))
 
     return instring.lower()
 
 ####################################################################################################
 #
 #
-def validate_int(val, min_val, param_name):
+def validate_int(val: str, min_val: int, param_name: str) -> int:
+    """Parse a string as an integer and enforce a minimum value.
+
+    Parameters
+    ----------
+    val : str
+        The raw string from the command line.
+    min_val : int
+        The minimum acceptable integer value (inclusive).
+    param_name : str
+        Name of the parameter (used in error messages).
+
+    Returns
+    -------
+    int
+        The validated integer.
+    """
     try:
         val_i = int(val)
 
@@ -51,9 +106,15 @@ def validate_int(val, min_val, param_name):
 
     return val_i
 
-def print_statistical_summary(data):
-    
-    length_list=[]
+def print_statistical_summary(data: list[list[str]]) -> None:
+    """Print basic length statistics for a set of sequences.
+
+    Parameters
+    ----------
+    data : list[list[str]]
+        Parsed FASTA data -- a list of ``[header, sequence]`` pairs.
+    """
+    length_list: list[int] = []
     for d in data:
         length_list.append(len(d[1]))
 
@@ -74,11 +135,19 @@ def print_statistical_summary(data):
 ####################################################################################################
 #
 #
-def main():
+def main() -> None:
+    """Entry-point for the ``pfasta`` command-line tool.
 
-    dsc='pfasta is a simple command-line tool for parsing, sanitizing, and manipulating\nprotein-based FASTA files. It is the command-line utility from the package protfasta'
+    Parses arguments, reads the input FASTA file via
+    :func:`protfasta.read_fasta`, applies any requested filters
+    (length, sub-sampling, duplicate/invalid handling), and writes
+    the result with :func:`protfasta.write_fasta`.
+    """
 
-    parser = argparse.ArgumentParser(description=dsc,formatter_class=RawTextHelpFormatter)
+    dsc = ('pfasta is a simple command-line tool for parsing, sanitizing, and manipulating\n'
+           'protein-based FASTA files. It is the command-line utility from the package protfasta')
+
+    parser = argparse.ArgumentParser(description=dsc, formatter_class=RawTextHelpFormatter)
 
     # note nargs means EITHER 0 or 1 arguments are accepted
     parser.add_argument("filename", nargs='?', help='Input FASTA file')

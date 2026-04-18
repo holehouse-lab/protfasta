@@ -5,7 +5,7 @@ protfasta
 
 
 
-## Release 0.1.15 (October 2024)
+## Release 0.1.18 (April 2026)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -42,7 +42,7 @@ And you're done. This also means you can now ``import`` and use **protfasta** in
 For bug reports or errors please raise an issue on this github repository (see the [Issues](https://github.com/holehouse-lab/protfasta/issues) tab at the top).
 
 ## Changelog
-* **0.1.16** (April 2026) - Performance overhaul for large FASTA files (hundreds of millions of sequences).
+* **0.1.18** (April 2026) - Performance overhaul for large FASTA files (hundreds of millions of sequences).
 	* `read_fasta` now streams the input file instead of reading it entirely into memory with `readlines()` — peak memory is now O(single record) rather than O(file size).
 	* New `protfasta.iter_fasta(filename, header_parser=None)` generator for memory-bounded streaming access to `(header, sequence)` pairs from files that don't fit in RAM.
 	* Core parser rewritten to use list-of-parts + `''.join()` instead of quadratic string concatenation, and to skip header-uniqueness tracking entirely when `expect_unique_header=False`.
@@ -52,6 +52,8 @@ For bug reports or errors please raise an issue on this github repository (see t
 	* `write_fasta` replaced its per-residue `fh.write()` loop with chunked slice writes and opens the output with a 1 MiB buffer — roughly two orders of magnitude faster on large files.
 	* All existing behavior and the full test suite (239 tests) are preserved.
 
+* **0.1.16 - 0.1.17** - skipped...
+	
 * **0.1.14**  and **0.1.15** (October 2024) - Re-wrote build chain and versioning to use `pyproject.toml` and [versioningit](https://pypi.org/project/versioningit/). protfasta should now support Python beyond 3.12. About bloody time. 
 	* Added `--version` flag to pfasta
 	* Messed around a bit with tags to ensure we had a tagged version compatible with them. 

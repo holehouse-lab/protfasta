@@ -1,12 +1,3 @@
-"""
-protfasta - A simple but robust FASTA parser explicitly for protein sequences.
-
-This package provides two user-facing functions:
-
-* :func:`read_fasta` -- read and sanitize a FASTA file.
-* :func:`write_fasta` -- write sequences to a FASTA file.
-"""
-
 from __future__ import annotations
 
 import os
@@ -17,6 +8,9 @@ from protfasta import io as _io
 from protfasta._configs import STANDARD_AAS, STANDARD_CONVERSION
 from protfasta import protfasta as _protfasta
 from protfasta.protfasta_exceptions import ProtfastaException
+
+# Re-export the streaming parser for callers handling very large files.
+from protfasta.io import iter_fasta  # noqa: F401
 
 ## ------------------------------------------------------------
 # READTHEDOCS versioning hack
@@ -264,8 +258,7 @@ def read_fasta(
 def write_fasta(
     fasta_data: Union[dict[str, str], list[list[str]]],
     filename: str,
-    linelength: Union[int, bool, None] = 60,
-    verbose: bool = False,
+    linelength: Union[int, bool, None] = 60,    
     append_to_fasta: bool = False,
 ) -> None:
     """Write sequences to a FASTA file.
@@ -290,10 +283,6 @@ def write_fasta(
         ``60`` (the UniProt convention).  Values below ``5`` are clamped
         to ``5``.  Set to ``0``, ``None``, or ``False`` to write each
         sequence on a single line.
-
-    verbose : bool, optional
-        Currently unused; reserved for future diagnostic output.
-        Default ``False``.
 
     append_to_fasta : bool, optional
         If ``True``, new entries are appended to *filename* if it
@@ -327,7 +316,6 @@ def write_fasta(
         def get_sequence():
             return (entry, fasta_data[entry])
         
-
     # override line length for sane input. N
     if linelength == False or linelength == None or linelength < 1:
         linelength = False
@@ -345,9 +333,10 @@ def write_fasta(
         open_mode='w'
     else:
         open_mode='a'
-    
-    # open the file handle.
-    with open(filename, open_mode) as fh:
+
+    # Use a large write buffer (1 MiB) to minimise syscall overhead when
+    # writing very large files.
+    with open(filename, open_mode, buffering=1024 * 1024) as fh:
 
         # for each entry
         for entry in fasta_data:
@@ -355,31 +344,25 @@ def write_fasta(
             (header, seq) = get_sequence()
             if len(seq) < 1:
                 raise ProtfastaException('Seqence associated with [%s] is empty'%(header))
-                
 
             # write the header line
-            fh.write('>%s\n'%(header))
-            
-            # the $wrotenewline bool is ONLY here to
-            # avoid the unlikely scenario in which the last character
-            # is also an integer number of linelength, such that you'd
-            # get TWO spaces between sequences. This ensures there is ALWAYS
-            # only one blank line between sequences
-            for i in range(0,len(seq)):
-                fh.write('%s'%seq[i])
-                wrotenewline=False
+            fh.write('>')
+            fh.write(header)
+            fh.write('\n')
 
-                # if linelength is valid
-                if linelength:
-
-                    # if we reach an integer number of line-length write
-                    # a newline character
-                    if (i+1) % linelength == 0:
-                        fh.write('\n')
-                        wrotenewline=True
-            
-            if wrotenewline:
+            if linelength:
+                # Slice the sequence into line-length chunks and write
+                # each chunk followed by a newline.  This is O(n) with
+                # a handful of Python-level write calls, vs one write
+                # per residue in the naive implementation.
+                seq_len = len(seq)
+                for start in range(0, seq_len, linelength):
+                    fh.write(seq[start:start + linelength])
+                    fh.write('\n')
+                # Blank separator line between records.
                 fh.write('\n')
             else:
+                # Single-line sequence output.
+                fh.write(seq)
                 fh.write('\n\n')
     

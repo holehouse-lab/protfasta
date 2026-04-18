@@ -211,48 +211,56 @@ def internal_parse_fasta_file(
         (when *expect_unique_header* is ``True``).
     """
         
-    # read in the file...
+    # Stream the file line-by-line rather than materializing the whole
+    # file with readlines().  This keeps peak memory to O(single record)
+    # which is essential for multi-gigabyte FASTA files.
     try:
-        with open(filename,'r') as fh:
-            content = fh.readlines()
+        fh = open(filename, 'r')
     except FileNotFoundError:
-        raise ProtfastaException('Unable to find file: %s'%(filename))
-    
-    if verbose:
-        print('[INFO]: Read in file with %i lines'%(len(content)))
+        raise ProtfastaException('Unable to find file: %s' % (filename))
 
-    # note, we'll keep the ability to directly parse dictionaries
-    return _parse_fasta_all(content, expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose)
-    
+    if verbose:
+        print('[INFO]: Read in file %s (streaming)' % (filename))
+
+    with fh:
+        return _parse_fasta_all(
+            fh,
+            expect_unique_header=expect_unique_header,
+            header_parser=header_parser,
+            verbose=verbose,
+        )
 
 
 ####################################################################################################
 #
 #
 def _parse_fasta_all(
-    content: list[str],
+    content,
     expect_unique_header: bool = True,
     header_parser: Optional[Callable[[str], str]] = None,
     verbose: bool = False,
 ) -> list[list[str]]:
-    """Parse raw FASTA-file lines into ``[header, sequence]`` pairs.
+    """Parse FASTA content into ``[header, sequence]`` pairs.
 
     This is the core parsing engine used by
-    :func:`internal_parse_fasta_file`.  It operates on an already-read
-    list of lines rather than a file path, making it easy to test in
-    isolation.
+    :func:`internal_parse_fasta_file`.  It accepts any iterable of
+    lines -- typically an open file handle (streamed, preferred for
+    large files) or a pre-loaded ``list[str]`` -- making it easy to
+    test in isolation.
 
     Parameters
     ----------
-    content : list[str]
-        Lines read from a FASTA file (e.g. via ``file.readlines()``).
-        Each element is expected to be a single line, optionally
-        terminated by a newline character.
+    content : Iterable[str]
+        Iterable yielding lines from a FASTA file.  Each element is
+        expected to be a single line, optionally terminated by a
+        newline character.  An open file handle is accepted and will
+        be consumed lazily.
 
     expect_unique_header : bool, optional
         If ``True`` (the default), a
         :class:`~protfasta.protfasta_exceptions.ProtfastaException` is
-        raised when a duplicate header is encountered.
+        raised when a duplicate header is encountered.  When ``False``
+        no header tracking is performed (saves memory on large files).
 
     header_parser : callable or None, optional
         A function ``(str) -> str`` used to transform raw header strings.
@@ -276,74 +284,130 @@ def _parse_fasta_all(
         found.
     """
 
-    
-    return_data=[]
+    return_data: list[list[str]] = []
 
-    # note - using a dictionary for all_headers to look up
-    # unique headers is MANY MANY MANY orders of magnitude faster than doing
-    # this with a list of a set
-    all_headers={}
-    
-    ## START OF PARSING FUNCTION    
-    seq=''
-    header=''
+    # Only allocate a header-tracking set when we actually need it.
+    # Using a set (not a dict-with-True-values) saves memory; skipping
+    # it entirely when expect_unique_header is False saves even more
+    # on files with hundreds of millions of records.
+    seen_headers: Optional[set[str]] = set() if expect_unique_header else None
 
-    def update():
-    
-        if header in all_headers:
-            if expect_unique_header:
-                raise ProtfastaException('Found duplicate header (%s)' %(header))
-        else:
-            all_headers[header] = True
-
-        return_data.append([header, seq.upper()])
-
+    # Accumulate sequence lines into a list and join once per record;
+    # this is O(n) per sequence instead of the O(n^2) that repeated
+    # string concatenation can degenerate into.
+    seq_parts: list[str] = []
+    header = ''
+    have_record = False
 
     for line in content:
-        
-        sline = line.strip()
 
-        # if empty line just skip...
-        if len(sline) == 0:
+        # rstrip() handles \n, \r, and any trailing whitespace in one
+        # C-level pass.  This is cheaper than a full strip() and a
+        # subsequent test, since most FASTA lines have no leading WS.
+        line = line.rstrip()
+
+        if not line:
             continue
 
-        # if  first non-whitespace character is a '>'
-        if sline[0] == '>':
+        if line[0] == '>':
+            # Flush the previous record, but only if we accumulated at
+            # least one sequence line (matching the original behaviour
+            # of silently skipping headers with no sequence).
+            if have_record and seq_parts:
+                if seen_headers is not None:
+                    if header in seen_headers:
+                        raise ProtfastaException('Found duplicate header (%s)' % (header))
+                    seen_headers.add(header)
+                return_data.append([header, ''.join(seq_parts).upper()])
 
-            # get the current header line
-            h = sline[1:]
-            
-            # if we'd previously had a sequence assigned, means we have just started a 
-            # 'new' sequence
-            if len(seq) > 0:
-                
-                # if we're in the processing of parsing a string this means we found a new
-                # header so update the return_data with header and sequence
-                update()
+            # Start the new record.
+            h = line[1:]
+            header = header_parser(h) if header_parser else h
+            seq_parts = []
+            have_record = True
+        else:
+            seq_parts.append(line)
 
-                                    
-            # reset the header and sequence
-            if header_parser:
-                header = header_parser(h)
-            else:
-                header = h
-            seq=''
-            
-        else:            
-            # we're on a line that is neither empty nor started with
-            # a '>' so it's treated as a sequence line
-            seq = seq + sline
-
-    # if we exit with a sequence in toe, there's one final sequence to
-    # add...        
-    if len(seq) > 0:
-        update()
+    # Flush the final record if the file didn't end with a blank line.
+    if have_record and seq_parts:
+        if seen_headers is not None:
+            if header in seen_headers:
+                raise ProtfastaException('Found duplicate header (%s)' % (header))
+            seen_headers.add(header)
+        return_data.append([header, ''.join(seq_parts).upper()])
 
     if verbose:
-        print('[INFO]: Parsed file to recover %i sequences' %(len(return_data)))
-
+        print('[INFO]: Parsed file to recover %i sequences' % (len(return_data)))
 
     return return_data
 
+
+
+####################################################################################################
+#
+#
+def iter_fasta(
+    filename: str,
+    header_parser: Optional[Callable[[str], str]] = None,
+):
+    """Yield ``(header, sequence)`` pairs from a FASTA file, streaming.
+
+    This is a memory-efficient alternative to :func:`protfasta.read_fasta`
+    designed for very large files (hundreds of millions of sequences)
+    where holding the entire dataset in memory is not feasible.
+
+    No duplicate detection, invalid-residue handling, or alignment-gap
+    logic is performed -- each record is yielded as parsed.  Callers
+    that need those features should consume the iterator and apply
+    their own filtering.
+
+    Parameters
+    ----------
+    filename : str
+        Path to a FASTA file.
+
+    header_parser : callable or None, optional
+        Optional ``(str) -> str`` transform applied to every raw header.
+
+    Yields
+    ------
+    tuple[str, str]
+        ``(header, sequence)`` pairs in the order they appear in the
+        file.  Sequences are upper-cased.
+
+    Raises
+    ------
+    ProtfastaException
+        If the file cannot be opened.
+    """
+    try:
+        fh = open(filename, 'r')
+    except FileNotFoundError:
+        raise ProtfastaException('Unable to find file: %s' % (filename))
+
+    seq_parts: list[str] = []
+    header = ''
+    have_record = False
+
+    try:
+        for line in fh:
+            line = line.rstrip()
+            if not line:
+                continue
+
+            if line[0] == '>':
+                if have_record and seq_parts:
+                    yield (header, ''.join(seq_parts).upper())
+                h = line[1:]
+                header = header_parser(h) if header_parser else h
+                seq_parts = []
+                have_record = True
+            else:
+                seq_parts.append(line)
+
+        if have_record and seq_parts:
+            yield (header, ''.join(seq_parts).upper())
+    finally:
+        fh.close()
 
 

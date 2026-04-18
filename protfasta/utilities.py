@@ -7,8 +7,29 @@ from __future__ import annotations
 
 from typing import Optional
 
+import hashlib
+
 from .protfasta_exceptions import ProtfastaException
-from ._configs import STANDARD_CONVERSION, STANDARD_CONVERSION_WITH_GAP, STANDARD_AAS, STANDARD_AAS_WITH_GAP
+from ._configs import (
+    STANDARD_CONVERSION,
+    STANDARD_CONVERSION_WITH_GAP,
+    STANDARD_AAS,
+    STANDARD_AAS_WITH_GAP,
+    _STANDARD_AAS_SET,
+    _STANDARD_AAS_WITH_GAP_SET,
+    _TRANSLATE_STANDARD,
+    _TRANSLATE_WITH_GAP,
+)
+
+
+def _seq_hash(seq: str) -> bytes:
+    """Return a 16-byte blake2b digest of *seq* for cheap duplicate lookup.
+
+    Used by duplicate-detection utilities so the lookup structure stores
+    128-bit digests instead of whole (potentially very long) sequences.
+    Collision probability for 10**8 sequences is ~10**-22.
+    """
+    return hashlib.blake2b(seq.encode('ascii', 'surrogatepass'), digest_size=16).digest()
 
 
 
@@ -90,19 +111,22 @@ def convert_to_valid(
         The sequence with non-standard residues replaced.
     """
 
-    if correction_dictionary:
-        converter = correction_dictionary
-    else:
+    # Fast path: use the pre-built str.translate tables for the built-in
+    # conversion dictionaries.  str.translate is a single C-level pass
+    # and is typically 5-20x faster than chained str.replace calls.
+    if not correction_dictionary:
         if alignment:
-            converter = STANDARD_CONVERSION_WITH_GAP
-        else:
-            converter = STANDARD_CONVERSION
+            return seq.translate(_TRANSLATE_WITH_GAP)
+        return seq.translate(_TRANSLATE_STANDARD)
 
-    # cycle over each key in the converter dictionary and replace all values in
-    # the sequence with the corresponding converted one 
-    for i in converter:
-        seq = seq.replace('%s'%(i), converter[i])
+    # Custom dictionary path: build a translate table on the fly if every
+    # key is a single character (the common case), else fall back to the
+    # original str.replace loop which handles multi-character keys.
+    if all(len(k) == 1 for k in correction_dictionary):
+        return seq.translate(str.maketrans(correction_dictionary))
 
+    for i in correction_dictionary:
+        seq = seq.replace(i, correction_dictionary[i])
     return seq
 
 
@@ -135,15 +159,17 @@ def check_sequence_is_valid(
           character encountered.
     """
 
-    if alignment == True:
-        valid_AA_list = STANDARD_AAS_WITH_GAP
-    else:
-        valid_AA_list = STANDARD_AAS
-    
-    s = list(set(seq))
-    for i in s:
-        if i not in valid_AA_list:
-            return (False, i)
+    valid = _STANDARD_AAS_WITH_GAP_SET if alignment else _STANDARD_AAS_SET
+
+    # Compute the set of distinct invalid characters via set difference
+    # (a single C-level pass to build set(seq), then frozenset-diff).
+    invalid = set(seq).difference(valid)
+    if invalid:
+        # Return a deterministic first-invalid character: scan seq once
+        # so that the reported offender matches the original ordering.
+        for ch in seq:
+            if ch in invalid:
+                return (False, ch)
 
     return (True, 0)
 
@@ -318,12 +344,15 @@ def fail_on_duplicates(dataset: list[list[str]]) -> None:
     ProtfastaException
         On the first duplicate record found.
     """
-    lookup: dict[str, str] = {}
+    # Store blake2b digests of sequences instead of full sequences to
+    # keep peak memory low for files with very long sequences.
+    lookup: dict[str, bytes] = {}
     for entry in dataset:
+        digest = _seq_hash(entry[1])
         if entry[0] not in lookup:
-            lookup[entry[0]] = entry[1]
+            lookup[entry[0]] = digest
         else:
-            if lookup[entry[0]] == entry[1]:
+            if lookup[entry[0]] == digest:
                 raise ProtfastaException('Found duplicate entries of the following record\n:>%s\n%s' % (entry[0], entry[1]))
 
 
@@ -348,33 +377,22 @@ def remove_duplicates(dataset: list[list[str]]) -> list[list[str]]:
     list[list[str]]
         De-duplicated list, preserving original order.
     """
-    lookup: dict[str, list[str]] = {}
+    # Store sets of sequence hashes per header (instead of raw sequences)
+    # to keep peak memory low.  O(1) membership test per header.
+    lookup: dict[str, set[bytes]] = {}
     updated: list[list[str]] = []
 
-    # for each entry in the dataset
     for entry in dataset:
+        header = entry[0]
+        digest = _seq_hash(entry[1])
 
-        # if we've never seen this header - add it to the lookup dictionary
-        # as an entry in a list. This means multiple entries can have the same header (which
-        # we're saying is OK)
-        if entry[0] not in lookup:
-            lookup[entry[0]] = [entry[1]]
+        seen = lookup.get(header)
+        if seen is None:
+            lookup[header] = {digest}
             updated.append(entry)
-
-        # however, if we HAVE seen this header before..
-        else:
-            found_dupe = False
-            
-            # for each sequence associated wth that header
-            # ask if we found a duplicate 
-            for d in lookup[entry[0]]:
-                if d == entry[1]:
-                    found_dupe=True
-
-            # if we found no duplicates add
-            if not found_dupe:
-                lookup[entry[0]].append(entry[1])
-                updated.append(entry)
+        elif digest not in seen:
+            seen.add(digest)
+            updated.append(entry)
 
     return updated
 
@@ -396,11 +414,14 @@ def fail_on_duplicate_sequences(dataset: list[list[str]]) -> None:
     ProtfastaException
         On the first pair of entries that share a sequence.
     """
-    seq_to_header: dict[str, str] = {}
+    # Key by a 16-byte digest rather than the full sequence for memory
+    # efficiency on large files.
+    seq_to_header: dict[bytes, str] = {}
     for entry in dataset:
-        if entry[1] in seq_to_header:
-            raise ProtfastaException('Found duplicate sequences associated with the following headers\n1. %s\n\n2. %s' % (seq_to_header[entry[1]], entry[0]))
-        seq_to_header[entry[1]] = entry[0]
+        digest = _seq_hash(entry[1])
+        if digest in seq_to_header:
+            raise ProtfastaException('Found duplicate sequences associated with the following headers\n1. %s\n\n2. %s' % (seq_to_header[digest], entry[0]))
+        seq_to_header[digest] = entry[0]
 
 
 
@@ -420,21 +441,17 @@ def remove_duplicate_sequences(dataset: list[list[str]]) -> list[list[str]]:
     list[list[str]]
         Filtered list with unique sequences, preserving original order.
     """
-    lookup: set[str] = set()
+    # Track seen sequences by their 16-byte digests to keep peak memory
+    # low for files with long sequences.
+    lookup: set[bytes] = set()
     updated: list[list[str]] = []
 
     for entry in dataset:
-
-        # if the sequence is in the lookup
-        # set
-        if entry[1] in lookup:
+        digest = _seq_hash(entry[1])
+        if digest in lookup:
             continue
-
-        # else its not in the lookup set so 
-        # add it and then add to the updated list
-        else:
-            lookup.add(entry[1])
-            updated.append(entry)
+        lookup.add(digest)
+        updated.append(entry)
     return updated
             
 

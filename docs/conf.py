@@ -23,7 +23,7 @@ import protfasta
 # -- Project information -----------------------------------------------------
 
 project = 'protfasta'
-copyright = ("2020, Alex Holehouse (Holehouse lab - http://holehouse.wustl.edu) ")
+copyright = ("2020-2026, Alex Holehouse (Holehouse lab - http://holehouse.wustl.edu) ")
 author = 'Alex S. Holehouse'
 
 # The short X.Y version

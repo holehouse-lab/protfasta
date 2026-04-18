@@ -8,13 +8,15 @@ protfasta - the simple FASTA parser for proteins
 
 **protfasta** is a simple, robust parser for working with FASTA files. It is pure python and has no external package dependencies other than Python language modules.
 
-It contains two distinct components:
+It contains three distinct components:
 
     1. A Python API for reading and writing FASTA files, which includes a collection of santization functions. This makes it easy to write code that reads/writes FASTA files.
 
-    2. A command line tool (``pfasta``) that allows manipulation of FASTA files directly from the command line.
+    2. A streaming parser (``iter_fasta``) for memory-bounded access to very large FASTA files.
 
-This documentation provides an overeview of both components.
+    3. A command line tool (``pfasta``) that allows manipulation of FASTA files directly from the command line.
+
+This documentation provides an overview of all three components.
 
 Why did you build protfasta? Don't you have better things to do with your time?
 .................................................................................
@@ -52,6 +54,7 @@ For now please just cite the `Github repository <https://github.com/holehouse-la
    examples
    read_fasta
    write_fasta
+   iter_fasta
 
 
 

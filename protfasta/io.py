@@ -19,8 +19,9 @@ Be kind to each other.
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import Callable, Iterator, Optional, Union
 
+from . import utilities as _utilities
 from .protfasta_exceptions import ProtfastaException
 
 
@@ -346,20 +347,22 @@ def _parse_fasta_all(
 ####################################################################################################
 #
 #
-def iter_fasta(
+def _iter_fasta(
     filename: str,
     header_parser: Optional[Callable[[str], str]] = None,
 ):
-    """Yield ``(header, sequence)`` pairs from a FASTA file, streaming.
+    """Yield raw ``(header, sequence)`` pairs from a FASTA file, streaming.
 
-    This is a memory-efficient alternative to :func:`protfasta.read_fasta`
-    designed for very large files (hundreds of millions of sequences)
-    where holding the entire dataset in memory is not feasible.
+    Low-level streaming parse loop used internally by
+    :func:`_stream_fasta` (and therefore by
+    :func:`protfasta.read_fasta_stream`).  It keeps peak memory to
+    ``O(single record)`` by reading the file line-by-line and joining
+    each record's sequence lines once.
 
     No duplicate detection, invalid-residue handling, or alignment-gap
-    logic is performed -- each record is yielded as parsed.  Callers
-    that need those features should consume the iterator and apply
-    their own filtering.
+    logic is performed -- each record is yielded exactly as parsed.  The
+    public streaming entry point, :func:`protfasta.read_fasta_stream`,
+    layers that sanitization on top.
 
     Parameters
     ----------
@@ -409,5 +412,279 @@ def iter_fasta(
             yield (header, ''.join(seq_parts).upper())
     finally:
         fh.close()
+
+
+####################################################################################################
+#
+#
+def _write_stream_record(fh, header: str, seq: str, linelength: int = 60) -> None:
+    """Write a single ``[header, sequence]`` record to an open file handle.
+
+    Used by :func:`_stream_fasta` to tee sanitized records to
+    *output_filename* as they are produced.  Formatting matches
+    :func:`protfasta.write_fasta` with its default ``linelength`` of 60
+    residues per line and a blank separator line between records.
+
+    Parameters
+    ----------
+    fh : file object
+        An open, writeable text file handle.
+
+    header : str
+        The record header (written without the leading ``">"``, which is
+        added here).
+
+    seq : str
+        The amino-acid sequence.  Must be non-empty.
+
+    linelength : int, optional
+        Number of residues per output line.  Default ``60``.
+
+    Raises
+    ------
+    ProtfastaException
+        If *seq* is empty (mirrors :func:`protfasta.write_fasta`).
+    """
+    if len(seq) < 1:
+        raise ProtfastaException('Seqence associated with [%s] is empty' % (header))
+
+    fh.write('>')
+    fh.write(header)
+    fh.write('\n')
+    for start in range(0, len(seq), linelength):
+        fh.write(seq[start:start + linelength])
+        fh.write('\n')
+    # Blank separator line between records.
+    fh.write('\n')
+
+
+####################################################################################################
+#
+#
+def _stream_fasta(
+    filename: str,
+    expect_unique_header: bool = True,
+    header_parser: Optional[Callable[[str], str]] = None,
+    duplicate_sequence_action: str = 'ignore',
+    duplicate_record_action: str = 'fail',
+    invalid_sequence_action: str = 'fail',
+    alignment: bool = False,
+    return_list: bool = False,
+    output_filename: Optional[str] = None,
+    correction_dictionary: Optional[dict[str, str]] = None,
+    verbose: bool = False,
+) -> Iterator[Union[tuple[str, str], list[str]]]:
+    """Stream a FASTA file record-by-record with full sanitization.
+
+    This is the streaming engine behind :func:`protfasta.read_fasta_stream`.
+    It applies the same processing steps as :func:`protfasta.read_fasta`
+    -- header-uniqueness checks, duplicate-record and duplicate-sequence
+    handling, and invalid-residue handling -- but yields one record at a
+    time instead of materializing the whole dataset.
+
+    The processing order matches :func:`protfasta.read_fasta`:
+
+    1. Header uniqueness (*expect_unique_header*).
+    2. Duplicate records (*duplicate_record_action*).
+    3. Duplicate sequences (*duplicate_sequence_action*).
+    4. Invalid residues (*invalid_sequence_action*).
+    5. Optional tee to *output_filename*.
+
+    Peak memory is ``O(number of records)`` for the auxiliary
+    duplicate/uniqueness bookkeeping (headers plus 16-byte sequence
+    digests -- never whole sequences) and ``O(single record)`` for the
+    sequence data itself.  When *expect_unique_header* is ``False`` and
+    all duplicate actions are ``'ignore'``, the auxiliary bookkeeping is
+    skipped entirely and memory is flat regardless of file size.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the FASTA file to read.
+
+    expect_unique_header : bool, optional
+        If ``True`` (default), raise on the first duplicate header.
+
+    header_parser : callable or None, optional
+        Optional ``(str) -> str`` transform applied to every raw header.
+
+    duplicate_sequence_action : str, optional
+        One of ``'ignore'``, ``'fail'``, or ``'remove'``.  Default
+        ``'ignore'``.
+
+    duplicate_record_action : str, optional
+        One of ``'ignore'``, ``'fail'``, or ``'remove'``.  Default
+        ``'fail'``.
+
+    invalid_sequence_action : str, optional
+        One of ``'ignore'``, ``'fail'``, ``'remove'``, ``'convert'``,
+        ``'convert-ignore'``, or ``'convert-remove'``.  Default
+        ``'fail'``.
+
+    alignment : bool, optional
+        If ``True``, dashes (``'-'``) are treated as valid gap
+        characters.  Default ``False``.
+
+    return_list : bool, optional
+        If ``True``, yield ``[header, sequence]`` lists; otherwise yield
+        ``(header, sequence)`` tuples (default).
+
+    output_filename : str or None, optional
+        If provided, each sanitized record is written to this path as it
+        is yielded.  The output file is only complete once the generator
+        has been fully consumed.
+
+    correction_dictionary : dict or None, optional
+        Custom character-replacement mapping used by the ``'convert'``
+        actions.  ``None`` uses the built-in table.
+
+    verbose : bool, optional
+        If ``True``, emit an opening message and, when the generator is
+        exhausted, a summary of removed/converted counts.
+
+    Yields
+    ------
+    tuple[str, str] or list[str]
+        ``(header, sequence)`` pairs (or ``[header, sequence]`` lists when
+        *return_list* is ``True``) in file order.  Sequences are
+        upper-cased and sanitized.
+
+    Raises
+    ------
+    ProtfastaException
+        On a duplicate header/record/sequence (for the relevant ``'fail'``
+        actions) or an invalid residue (for ``'fail'``/``'convert'``).
+        Because parsing is lazy, these are raised mid-iteration, at the
+        offending record.
+    """
+
+    # Only allocate bookkeeping structures for the actions that need them.
+    seen_headers: Optional[set[str]] = set() if expect_unique_header else None
+
+    # duplicate records: header -> set of sequence digests
+    record_lookup: Optional[dict[str, set[bytes]]] = (
+        {} if duplicate_record_action in ('fail', 'remove') else None
+    )
+
+    # duplicate sequences: sequence digest -> first header seen (the header
+    # is retained so the 'fail' message can name both offenders).
+    seq_lookup: Optional[dict[bytes, str]] = (
+        {} if duplicate_sequence_action in ('fail', 'remove') else None
+    )
+
+    need_digest = record_lookup is not None or seq_lookup is not None
+
+    n_read = 0
+    n_yielded = 0
+    n_dup_records_removed = 0
+    n_dup_seqs_removed = 0
+    n_invalid_removed = 0
+    n_converted = 0
+
+    # Large write buffer to minimise syscall overhead, matching write_fasta.
+    out_fh = open(output_filename, 'w', buffering=1024 * 1024) if output_filename else None
+
+    if verbose:
+        print('[INFO]: Streaming file %s' % (filename))
+
+    try:
+        for header, seq in _iter_fasta(filename, header_parser=header_parser):
+            n_read += 1
+
+            # 1. header uniqueness
+            if seen_headers is not None:
+                if header in seen_headers:
+                    raise ProtfastaException('Found duplicate header (%s)' % (header))
+                seen_headers.add(header)
+
+            digest = _utilities._seq_hash(seq) if need_digest else b''
+
+            # 2. duplicate records (identical header AND sequence)
+            if record_lookup is not None:
+                seen = record_lookup.get(header)
+                if seen is None:
+                    record_lookup[header] = {digest}
+                elif digest in seen:
+                    if duplicate_record_action == 'fail':
+                        raise ProtfastaException('Found duplicate entries of the following record\n:>%s\n%s' % (header, seq))
+                    n_dup_records_removed += 1
+                    continue
+                else:
+                    seen.add(digest)
+
+            # 3. duplicate sequences (identical sequence, any header)
+            if seq_lookup is not None:
+                if digest in seq_lookup:
+                    if duplicate_sequence_action == 'fail':
+                        raise ProtfastaException('Found duplicate sequences associated with the following headers\n1. %s\n\n2. %s' % (seq_lookup[digest], header))
+                    n_dup_seqs_removed += 1
+                    continue
+                seq_lookup[digest] = header
+
+            # 4. invalid-residue handling (per record)
+            if invalid_sequence_action == 'ignore':
+                pass
+
+            elif invalid_sequence_action == 'fail':
+                (status, info) = _utilities.check_sequence_is_valid(seq, alignment)
+                if status is not True:
+                    raise ProtfastaException('Failed on invalid amino acid: %s\nTaken from entry...\n>%s\n%s\n' % (info, header, seq))
+
+            elif invalid_sequence_action == 'remove':
+                (status, _info) = _utilities.check_sequence_is_valid(seq, alignment)
+                if status is not True:
+                    n_invalid_removed += 1
+                    continue
+
+            elif invalid_sequence_action == 'convert':
+                new_seq = _utilities.convert_to_valid(seq, correction_dictionary, alignment)
+                if new_seq != seq:
+                    n_converted += 1
+                (status, info) = _utilities.check_sequence_is_valid(new_seq, alignment)
+                if status is not True:
+                    inner = 'Failed on invalid amino acid: %s\nTaken from entry...\n>%s\n%s\n' % (info, header, new_seq)
+                    raise ProtfastaException("\n\n******* Despite fixing fixable errors, additional problems remain with the sequence*********\n%s" % (inner))
+                seq = new_seq
+
+            elif invalid_sequence_action == 'convert-ignore':
+                new_seq = _utilities.convert_to_valid(seq, correction_dictionary, alignment)
+                if new_seq != seq:
+                    n_converted += 1
+                seq = new_seq
+
+            elif invalid_sequence_action == 'convert-remove':
+                new_seq = _utilities.convert_to_valid(seq, correction_dictionary, alignment)
+                if new_seq != seq:
+                    n_converted += 1
+                (status, _info) = _utilities.check_sequence_is_valid(new_seq, alignment)
+                if status is not True:
+                    n_invalid_removed += 1
+                    continue
+                seq = new_seq
+
+            # 5. tee the sanitized record to disk (if requested)
+            if out_fh is not None:
+                _write_stream_record(out_fh, header, seq)
+
+            n_yielded += 1
+            if return_list:
+                yield [header, seq]
+            else:
+                yield (header, seq)
+
+        if verbose:
+            if duplicate_record_action == 'remove':
+                print('[INFO]: Removed %i of %i due to duplicate records ' % (n_dup_records_removed, n_read))
+            if duplicate_sequence_action == 'remove':
+                print('[INFO]: Removed %i of %i due to duplicate sequences ' % (n_dup_seqs_removed, n_read))
+            if invalid_sequence_action in ('convert', 'convert-ignore', 'convert-remove'):
+                print('[INFO]: Converted %i sequences to valid sequences' % (n_converted))
+            if invalid_sequence_action in ('remove', 'convert-remove'):
+                print('[INFO]: Removed %i of %i due to sequences with invalid characters' % (n_invalid_removed, n_read))
+            print('[INFO]: Streamed %i of %i records from %s' % (n_yielded, n_read, filename))
+
+    finally:
+        if out_fh is not None:
+            out_fh.close()
 
 

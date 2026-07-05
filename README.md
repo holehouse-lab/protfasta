@@ -5,7 +5,7 @@ protfasta
 
 
 
-## Release 0.1.18 (April 2026)
+## Release 0.1.19 (July 2026)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -42,6 +42,12 @@ And you're done. This also means you can now ``import`` and use **protfasta** in
 For bug reports or errors please raise an issue on this github repository (see the [Issues](https://github.com/holehouse-lab/protfasta/issues) tab at the top).
 
 ## Changelog
+* **0.1.19** (July 2026) - Streaming reads with full sanitization.
+	* New `protfasta.read_fasta_stream(...)` - a streaming counterpart to `read_fasta` with an identical signature. It returns a generator that yields `(header, sequence)` tuples (or `[header, sequence]` lists with `return_list=True`) one record at a time, applying the same sanitization pipeline as `read_fasta` (duplicate handling, invalid-residue handling, alignment support, custom header parsing). Peak memory stays bounded to roughly one record, so files larger than RAM can be processed in a single pass. Sanitized output can be teed to disk as it streams via `output_filename`.
+	* **Breaking change:** removed the public `protfasta.iter_fasta` generator that was introduced in 0.1.18. `read_fasta_stream` supersedes it - it provides the same streaming access plus the full sanitization pipeline. For the closest drop-in equivalent (streaming with no checks), use `read_fasta_stream(f, expect_unique_header=False, duplicate_record_action='ignore', invalid_sequence_action='ignore')`; or just `read_fasta_stream(f)` to additionally gain header-uniqueness, duplicate, and invalid-residue validation.
+	* Added a dedicated `read_fasta_stream` documentation page and worked examples, including guidance on when to use `read_fasta_stream` vs `read_fasta`.
+	* Test suite expanded to 260 tests (21 new tests covering the streaming parser).
+
 * **0.1.18** (April 2026) - Performance overhaul for large FASTA files (hundreds of millions of sequences).
 	* `read_fasta` now streams the input file instead of reading it entirely into memory with `readlines()` — peak memory is now O(single record) rather than O(file size).
 	* New `protfasta.iter_fasta(filename, header_parser=None)` generator for memory-bounded streaming access to `(header, sequence)` pairs from files that don't fit in RAM.

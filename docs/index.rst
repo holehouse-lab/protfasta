@@ -12,7 +12,7 @@ It contains three distinct components:
 
     1. A Python API for reading and writing FASTA files, which includes a collection of santization functions. This makes it easy to write code that reads/writes FASTA files.
 
-    2. A streaming parser (``iter_fasta``) for memory-bounded access to very large FASTA files.
+    2. A streaming parser (``read_fasta_stream``) for memory-bounded access to very large FASTA files.
 
     3. A command line tool (``pfasta``) that allows manipulation of FASTA files directly from the command line.
 
@@ -53,8 +53,8 @@ For now please just cite the `Github repository <https://github.com/holehouse-la
    pfasta
    examples
    read_fasta
+   read_fasta_stream
    write_fasta
-   iter_fasta
 
 
 

@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import os
-from typing import Callable, Optional, Union
+from typing import Callable, Iterator, Optional, Union
 
 from protfasta import utilities as _utilities
 from protfasta import io as _io
 from protfasta._configs import STANDARD_AAS, STANDARD_CONVERSION
 from protfasta import protfasta as _protfasta
 from protfasta.protfasta_exceptions import ProtfastaException
-
-# Re-export the streaming parser for callers handling very large files.
-from protfasta.io import iter_fasta  # noqa: F401
 
 ## ------------------------------------------------------------
 # READTHEDOCS versioning hack
@@ -250,7 +247,159 @@ def read_fasta(
 
         
     return updated
-        
+
+
+
+# ------------------------------------------------------------------
+#
+def read_fasta_stream(
+    filename: str,
+    expect_unique_header: bool = True,
+    header_parser: Optional[Callable[[str], str]] = None,
+    check_header_parser: bool = True,
+    duplicate_sequence_action: str = 'ignore',
+    duplicate_record_action: str = 'fail',
+    invalid_sequence_action: str = 'fail',
+    alignment: bool = False,
+    return_list: bool = False,
+    output_filename: Optional[str] = None,
+    correction_dictionary: Optional[dict[str, str]] = None,
+    verbose: bool = False,
+) -> Iterator[Union[tuple[str, str], list[str]]]:
+    """Stream a FASTA file record-by-record, sanitizing as it goes.
+
+    This is the streaming counterpart to :func:`read_fasta`.  It takes an
+    identical set of arguments but, instead of loading the whole file and
+    returning a dictionary or list, it returns a **generator** that yields
+    one sanitized record at a time.  This keeps peak memory bounded and
+    makes it possible to process files far larger than RAM::
+
+        for header, seq in read_fasta_stream('huge.fasta'):
+            ...
+
+    Because a lazily-produced result cannot be a dictionary, the
+    dict-versus-list distinction of :func:`read_fasta` collapses: this
+    function yields ``(header, sequence)`` tuples by default, or
+    ``[header, sequence]`` lists when *return_list* is ``True``.
+
+    All argument validation is performed eagerly, at call time, so bad
+    keyword combinations raise immediately (before iteration begins).
+    Data-dependent errors -- a duplicate header, a duplicate record or
+    sequence under a ``'fail'`` action, or an invalid residue -- are
+    inherent to streaming and are therefore raised **mid-iteration**, at
+    the offending record, rather than up front.
+
+    The same processing steps as :func:`read_fasta` are applied, in the
+    same order (header uniqueness, duplicate records, duplicate sequences,
+    invalid residues).  See :func:`read_fasta` for a full description of
+    each argument; the notes below cover only where streaming differs.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the FASTA file to read.
+
+    expect_unique_header : bool, optional
+        As in :func:`read_fasta`.  Enforced with a running set of seen
+        headers.  Default ``True``.
+
+    header_parser : callable or None, optional
+        As in :func:`read_fasta`.  Default ``None``.
+
+    check_header_parser : bool, optional
+        As in :func:`read_fasta`.  Default ``True``.
+
+    duplicate_sequence_action : str, optional
+        As in :func:`read_fasta`.  The ``'fail'`` and ``'remove'``
+        variants keep a running set of 16-byte sequence digests (never
+        whole sequences).  Default ``'ignore'``.
+
+    duplicate_record_action : str, optional
+        As in :func:`read_fasta`.  The ``'fail'`` and ``'remove'``
+        variants keep a running header-to-digest map.  Default
+        ``'fail'``.
+
+    invalid_sequence_action : str, optional
+        As in :func:`read_fasta`.  Every mode is a per-record decision
+        and streams without extra state.  Default ``'fail'``.
+
+    alignment : bool, optional
+        As in :func:`read_fasta`.  Default ``False``.
+
+    return_list : bool, optional
+        If ``True``, yield ``[header, sequence]`` lists (matching the
+        internal format of :func:`read_fasta` with ``return_list=True``);
+        otherwise yield ``(header, sequence)`` tuples.  Default
+        ``False``.
+
+    output_filename : str or None, optional
+        If provided, each sanitized record is written to this path as it
+        is yielded (60 residues per line, as in :func:`write_fasta`).
+        The file is only complete once the generator has been fully
+        consumed.  Must differ from *filename*.
+
+    correction_dictionary : dict or None, optional
+        As in :func:`read_fasta`.  Default ``None``.
+
+    verbose : bool, optional
+        If ``True``, print an opening message and, once the generator is
+        exhausted, a summary of removed/converted counts.  Per-total
+        summaries are only emitted at exhaustion because a stream never
+        sees the file total up front.  Default ``False``.
+
+    Returns
+    -------
+    Iterator[tuple[str, str]] or Iterator[list[str]]
+        A generator yielding ``(header, sequence)`` tuples (or
+        ``[header, sequence]`` lists when *return_list* is ``True``) in
+        file order.  Sequences are upper-cased and sanitized.
+
+    Raises
+    ------
+    ProtfastaException
+        Eagerly, for invalid argument combinations; lazily (during
+        iteration) for data-dependent failures.
+
+    See Also
+    --------
+    read_fasta : Load and return the whole file as a dict or list.
+    write_fasta : Write sequences out to a FASTA file.
+    """
+
+    # Validate arguments eagerly (this function is not itself a generator,
+    # so its body runs at call time -- bad keywords fail fast, before any
+    # iteration begins, matching read_fasta).
+    _io.check_inputs(expect_unique_header,
+                     header_parser,
+                     check_header_parser,
+                     duplicate_record_action,
+                     duplicate_sequence_action,
+                     invalid_sequence_action,
+                     alignment,
+                     return_list,
+                     output_filename,
+                     verbose,
+                     correction_dictionary)
+
+    # Streaming-specific guard: reading and simultaneously overwriting the
+    # same file would corrupt the input mid-stream.  read_fasta is immune
+    # because it reads the whole file before writing, but streaming is not.
+    if output_filename is not None:
+        if os.path.abspath(output_filename) == os.path.abspath(filename):
+            raise ProtfastaException("keyword 'output_filename' must differ from 'filename' when streaming")
+
+    return _io._stream_fasta(filename,
+                             expect_unique_header=expect_unique_header,
+                             header_parser=header_parser,
+                             duplicate_sequence_action=duplicate_sequence_action,
+                             duplicate_record_action=duplicate_record_action,
+                             invalid_sequence_action=invalid_sequence_action,
+                             alignment=alignment,
+                             return_list=return_list,
+                             output_filename=output_filename,
+                             correction_dictionary=correction_dictionary,
+                             verbose=verbose)
+
 
 
 # ------------------------------------------------------------------

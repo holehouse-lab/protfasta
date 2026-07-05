@@ -80,10 +80,11 @@ Large files
 ............
 
 For files that do not fit comfortably in memory, consider using the
-streaming parser :func:`protfasta.iter_fasta` instead. ``read_fasta``
-itself streams the file from disk (so it will not load the entire file
-as a single string), but it still builds an in-memory data structure
-of all records; ``iter_fasta`` avoids that.
+streaming parser :func:`protfasta.read_fasta_stream` instead.
+``read_fasta`` itself streams the file from disk (so it will not load
+the entire file as a single string), but it still builds an in-memory
+data structure of all records; ``read_fasta_stream`` avoids that by
+yielding one sanitized record at a time.
 
 
 For usage examples see the :doc:`examples` page. Full API

@@ -26,6 +26,7 @@ Organized into test classes by functional area:
 - TestReadFastaCorrectionDictionary: correction_dictionary parameter
 - TestWriteFasta: write_fasta function
 - TestEndToEndCombinations: Combined parameter interactions
+- TestReadFastaStream: read_fasta_stream streaming parser
 """
 
 import protfasta
@@ -1368,3 +1369,123 @@ class TestEndToEndCombinations:
         assert readback['h1'] == 'ACDEF'
         assert readback['h2'] == 'GHIKL'
         assert readback['h3'] == 'MNPQR'
+
+
+# ---------------------------------------------------------------------------
+# TestReadFastaStream
+# ---------------------------------------------------------------------------
+class TestReadFastaStream:
+    """Tests for read_fasta_stream, the streaming counterpart to read_fasta."""
+
+    def test_is_callable(self):
+        assert callable(protfasta.read_fasta_stream)
+
+    def test_returns_generator(self):
+        import types
+        result = protfasta.read_fasta_stream(SIMPLE_FILE)
+        assert isinstance(result, types.GeneratorType)
+
+    def test_yields_tuples_by_default(self):
+        for record in protfasta.read_fasta_stream(SIMPLE_FILE):
+            assert isinstance(record, tuple)
+            assert len(record) == 2
+            break
+
+    def test_yields_lists_with_return_list(self):
+        for record in protfasta.read_fasta_stream(SIMPLE_FILE, return_list=True):
+            assert isinstance(record, list)
+            assert len(record) == 2
+            break
+
+    def test_count_matches_read_fasta(self):
+        ref = protfasta.read_fasta(SIMPLE_FILE, return_list=True)
+        streamed = list(protfasta.read_fasta_stream(SIMPLE_FILE))
+        assert len(streamed) == len(ref)
+
+    def test_content_parity_with_read_fasta(self):
+        ref = protfasta.read_fasta(SIMPLE_FILE, return_list=True)
+        streamed = list(protfasta.read_fasta_stream(SIMPLE_FILE))
+        for (h_ref, s_ref), (h_str, s_str) in zip(ref, streamed):
+            assert h_ref == h_str
+            assert s_ref == s_str
+
+    def test_preserves_order(self):
+        streamed = list(protfasta.read_fasta_stream(SIMPLE_FILE))
+        assert streamed[0][0] == WASL_HEADER
+        assert streamed[0][1] == WASL_SEQ
+
+    def test_header_parser_applied(self):
+        def first_word(s):
+            return s.split()[0]
+        streamed = list(protfasta.read_fasta_stream(SIMPLE_FILE, header_parser=first_word))
+        assert streamed[0][0] == WASL_HEADER.split()[0]
+
+    def test_invalid_action_fail_raises(self):
+        with pytest.raises(ProtfastaException):
+            list(protfasta.read_fasta_stream(BADCHAR_FILE))
+
+    def test_invalid_action_remove(self):
+        ref = protfasta.read_fasta(BADCHAR_FILE, invalid_sequence_action='remove', return_list=True)
+        streamed = list(protfasta.read_fasta_stream(BADCHAR_FILE, invalid_sequence_action='remove'))
+        assert len(streamed) == len(ref)
+
+    def test_invalid_action_convert_parity(self):
+        ref = protfasta.read_fasta(FIXABLE_INVALID_FILE, invalid_sequence_action='convert', return_list=True)
+        streamed = list(protfasta.read_fasta_stream(FIXABLE_INVALID_FILE, invalid_sequence_action='convert'))
+        assert [list(r) for r in streamed] == ref
+
+    def test_convert_remove_parity(self):
+        ref = protfasta.read_fasta(FIXABLE_INVALID_FILE, invalid_sequence_action='convert-remove', return_list=True)
+        streamed = list(protfasta.read_fasta_stream(FIXABLE_INVALID_FILE, invalid_sequence_action='convert-remove'))
+        assert [list(r) for r in streamed] == ref
+
+    def test_duplicate_sequence_remove_parity(self):
+        ref = protfasta.read_fasta(DUPLICATE_SEQ_FILE, duplicate_sequence_action='remove', return_list=True)
+        streamed = list(protfasta.read_fasta_stream(DUPLICATE_SEQ_FILE, duplicate_sequence_action='remove'))
+        assert [list(r) for r in streamed] == ref
+
+    def test_duplicate_sequence_fail_raises(self):
+        with pytest.raises(ProtfastaException):
+            list(protfasta.read_fasta_stream(DUPLICATE_SEQ_FILE, duplicate_sequence_action='fail'))
+
+    def test_duplicate_record_fail_raises(self):
+        with pytest.raises(ProtfastaException):
+            list(protfasta.read_fasta_stream(DUPLICATE_RECORD_FILE, expect_unique_header=False))
+
+    def test_eager_validation_bad_kwarg(self):
+        # Bad keyword must raise at call time, before any iteration begins.
+        with pytest.raises(ProtfastaException):
+            protfasta.read_fasta_stream(SIMPLE_FILE, invalid_sequence_action='nonsense')
+
+    def test_missing_file_raises(self):
+        # File-open errors surface when iteration begins.
+        with pytest.raises(ProtfastaException):
+            list(protfasta.read_fasta_stream('does_not_exist_12345.fasta'))
+
+    def test_output_filename_tee_parity(self, tmp_path):
+        outfile = str(tmp_path / 'streamed.fasta')
+        # Fully consume the stream so the tee'd file is complete.
+        list(protfasta.read_fasta_stream(SIMPLE_FILE, output_filename=outfile))
+        ref = protfasta.read_fasta(SIMPLE_FILE, return_list=True)
+        readback = protfasta.read_fasta(outfile, return_list=True)
+        assert readback == ref
+
+    def test_output_filename_same_as_input_raises(self):
+        with pytest.raises(ProtfastaException):
+            protfasta.read_fasta_stream(SIMPLE_FILE, output_filename=SIMPLE_FILE)
+
+    def test_alignment_parity(self):
+        ref = protfasta.read_fasta(ALIGNED_VALID_FILE, alignment=True, return_list=True)
+        streamed = list(protfasta.read_fasta_stream(ALIGNED_VALID_FILE, alignment=True))
+        assert [list(r) for r in streamed] == ref
+
+    def test_verbose_summary_at_exhaustion(self, capsys):
+        stream = protfasta.read_fasta_stream(
+            DUPLICATE_SEQ_FILE,
+            duplicate_sequence_action='remove',
+            verbose=True,
+        )
+        # Nothing summarised until the stream is consumed.
+        list(stream)
+        captured = capsys.readouterr()
+        assert 'duplicate sequences' in captured.out.lower() or 'Streamed' in captured.out

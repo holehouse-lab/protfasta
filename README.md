@@ -1,11 +1,18 @@
 protfasta
 ==============================
 [//]: # (Badges)
-[![Build Status](https://travis-ci.org/holehouse-lab/protfasta.svg?branch=master)](https://travis-ci.org/holehouse-lab/protfasta)
+[![PyPI version](https://img.shields.io/pypi/v/protfasta.svg)](https://pypi.org/project/protfasta/)
+[![Python versions](https://img.shields.io/pypi/pyversions/protfasta.svg)](https://pypi.org/project/protfasta/)
+[![Documentation Status](https://readthedocs.org/projects/protfasta/badge/?version=latest)](https://protfasta.readthedocs.io/en/latest/?badge=latest)
+[![License: MIT](https://img.shields.io/github/license/holehouse-lab/protfasta.svg)](https://github.com/holehouse-lab/protfasta/blob/master/LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/holehouse-lab/protfasta.svg)](https://github.com/holehouse-lab/protfasta/commits/master)
+[![Open issues](https://img.shields.io/github/issues/holehouse-lab/protfasta.svg)](https://github.com/holehouse-lab/protfasta/issues)
+[![Stars](https://img.shields.io/github/stars/holehouse-lab/protfasta.svg?style=flat)](https://github.com/holehouse-lab/protfasta/stargazers)
+[![Downloads](https://img.shields.io/pypi/dm/protfasta.svg)](https://pypi.org/project/protfasta/)
 
 
 
-## Release 0.1.20 (July 2026)
+## Release 0.1.21 (July 2026)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -42,14 +49,15 @@ And you're done. This also means you can now ``import`` and use **protfasta** in
 For bug reports or errors please raise an issue on this github repository (see the [Issues](https://github.com/holehouse-lab/protfasta/issues) tab at the top).
 
 ## Changelog
-* **0.1.20** (July 2026) - Change defaults for `protfasta.read_fasta_stream(...)` 
+* **0.1.20 and 0.1.21** (July 2026) - Change defaults for `protfasta.read_fasta_stream(...)` 
 	* Previously the default options for `protfasta.read_fasta_stream(...)` led to a small O(N) memory growth due to duplicate record sanity checking. We have now changed the default behavior to not check for duplicates, ensuring `protfasta.read_fasta_stream(...)` is truly memory flat. We also include a warning if options are passed to `protfasta.read_fasta_stream(...)` that will not yeild a flat memory implementation. Note that even if this is the case, the memory footprint here remains much smaller than for the `read_fasta(...)` implementation.
+	* Update to readme (for 0.1.21)
 	
 * **0.1.19** (July 2026) - Streaming reads with full sanitization.
   * New `protfasta.read_fasta_stream(...)` - a streaming counterpart to `read_fasta` with an identical signature. It returns a generator that yields `(header, sequence)` tuples (or `[header, sequence]` lists with `return_list=True`) one record at a time, applying the same sanitization pipeline as `read_fasta` (duplicate handling, invalid-residue handling, alignment support, custom header parsing). Peak memory stays bounded to roughly one record, so files larger than RAM can be processed in a single pass. Sanitized output can be teed to disk as it streams via `output_filename`.
   * **Breaking change:** removed the public `protfasta.iter_fasta` generator that was introduced in 0.1.18. `read_fasta_stream` supersedes it - it provides the same streaming access plus the full sanitization pipeline. For the closest drop-in equivalent (streaming with no checks), use `read_fasta_stream(f, expect_unique_header=False, duplicate_record_action='ignore', invalid_sequence_action='ignore')`; or just `read_fasta_stream(f)` to additionally gain header-uniqueness, duplicate, and invalid-residue validation.
   * Added a dedicated `read_fasta_stream` documentation page and worked examples, including guidance on when to use `read_fasta_stream` vs `read_fasta`.
-  * Test suite expanded to 260 tests (21 new tests covering the streaming parser).
+  * Test suite expanded with 21 new tests covering the streaming parser.
 
 * **0.1.18** (April 2026) - Performance overhaul for large FASTA files (hundreds of millions of sequences).
   * `read_fasta` now streams the input file instead of reading it entirely into memory with `readlines()` — peak memory is now O(single record) rather than O(file size).

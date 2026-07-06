@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from typing import Callable, Iterator, Optional, Union
 
 from protfasta import utilities as _utilities
@@ -254,33 +255,70 @@ def read_fasta(
 #
 def read_fasta_stream(
     filename: str,
-    expect_unique_header: bool = True,
+    expect_unique_header: bool = False,
     header_parser: Optional[Callable[[str], str]] = None,
     check_header_parser: bool = True,
     duplicate_sequence_action: str = 'ignore',
-    duplicate_record_action: str = 'fail',
+    duplicate_record_action: str = 'ignore',
     invalid_sequence_action: str = 'fail',
     alignment: bool = False,
     return_list: bool = False,
     output_filename: Optional[str] = None,
     correction_dictionary: Optional[dict[str, str]] = None,
     verbose: bool = False,
+    silence_warnings: bool = False,
 ) -> Iterator[Union[tuple[str, str], list[str]]]:
     """Stream a FASTA file record-by-record, sanitizing as it goes.
 
-    This is the streaming counterpart to :func:`read_fasta`.  It takes an
-    identical set of arguments but, instead of loading the whole file and
-    returning a dictionary or list, it returns a **generator** that yields
-    one sanitized record at a time.  This keeps peak memory bounded and
-    makes it possible to process files far larger than RAM::
+    This is the streaming counterpart to :func:`read_fasta`.  It takes the
+    same arguments but, instead of loading the whole file and returning a
+    dictionary or list, it returns a **generator** that yields one sanitized
+    record at a time.  This keeps peak memory bounded and makes it possible to
+    process files far larger than RAM::
 
         for header, seq in read_fasta_stream('huge.fasta'):
             ...
+
+    .. warning::
+
+       **The duplicate/uniqueness-checking defaults differ from**
+       :func:`read_fasta`.  To keep streaming flat in memory by default,
+       this function defaults to ``expect_unique_header=False`` and
+       ``duplicate_record_action='ignore'``, whereas :func:`read_fasta`
+       defaults to ``expect_unique_header=True`` and
+       ``duplicate_record_action='fail'``.  As a result, **duplicate headers
+       and duplicate records are not detected by default when streaming.**
+       This is deliberate: those checks each cost ``O(records)`` memory (a
+       running set of headers / digests), which would defeat the point of a
+       streamer built for files larger than RAM.  Re-enable them explicitly
+       (e.g. ``expect_unique_header=True``) if you need them -- a one-time
+       warning will then flag the memory cost.  See the Memory section below.
 
     Because a lazily-produced result cannot be a dictionary, the
     dict-versus-list distinction of :func:`read_fasta` collapses: this
     function yields ``(header, sequence)`` tuples by default, or
     ``[header, sequence]`` lists when *return_list* is ``True``.
+
+    Memory
+    ------
+    **By default this function is flat in memory**: only one record is held
+    at a time and no per-record bookkeeping is kept, so peak memory is
+    independent of file size and files far larger than RAM stream fine.  This
+    is why the duplicate/uniqueness-checking defaults differ from
+    :func:`read_fasta` (see the warning above).
+
+    The *duplicate/uniqueness checks* are still available, but each needs to
+    remember what it has already seen, so enabling one adds ``O(records)``
+    auxiliary state (hundreds of MB or more on very large files):
+
+    * ``expect_unique_header=True`` keeps a running set of every header;
+    * ``duplicate_record_action`` in ``('fail', 'remove')`` keeps a
+      running header -> sequence-digest map;
+    * ``duplicate_sequence_action`` in ``('fail', 'remove')`` keeps a
+      running set of sequence digests.
+
+    Whenever a memory-growing check is enabled a one-time warning is emitted
+    (suppress it with ``silence_warnings=True``).
 
     All argument validation is performed eagerly, at call time, so bad
     keyword combinations raise immediately (before iteration begins).
@@ -300,8 +338,12 @@ def read_fasta_stream(
         Path to the FASTA file to read.
 
     expect_unique_header : bool, optional
-        As in :func:`read_fasta`.  Enforced with a running set of seen
-        headers.  Default ``True``.
+        As in :func:`read_fasta`, but **defaults to ``False`` here** so that
+        streaming is flat in memory by default.  When ``True`` a running set
+        of seen headers is kept (``O(records)`` memory), and the default
+        ``duplicate_record_action='ignore'`` is promoted to ``'fail'`` (unique
+        headers already preclude duplicate records), so ``True`` works on its
+        own.  Default ``False``.
 
     header_parser : callable or None, optional
         As in :func:`read_fasta`.  Default ``None``.
@@ -312,12 +354,13 @@ def read_fasta_stream(
     duplicate_sequence_action : str, optional
         As in :func:`read_fasta`.  The ``'fail'`` and ``'remove'``
         variants keep a running set of 16-byte sequence digests (never
-        whole sequences).  Default ``'ignore'``.
+        whole sequences), i.e. ``O(records)`` memory.  Default ``'ignore'``.
 
     duplicate_record_action : str, optional
-        As in :func:`read_fasta`.  The ``'fail'`` and ``'remove'``
-        variants keep a running header-to-digest map.  Default
-        ``'fail'``.
+        As in :func:`read_fasta`, but **defaults to ``'ignore'`` here** so
+        that streaming is flat in memory by default.  The ``'fail'`` and
+        ``'remove'`` variants keep a running header-to-digest map
+        (``O(records)`` memory).  Default ``'ignore'``.
 
     invalid_sequence_action : str, optional
         As in :func:`read_fasta`.  Every mode is a per-record decision
@@ -347,6 +390,11 @@ def read_fasta_stream(
         summaries are only emitted at exhaustion because a stream never
         sees the file total up front.  Default ``False``.
 
+    silence_warnings : bool, optional
+        If ``True``, suppress the one-time warning emitted when a
+        memory-growing duplicate/uniqueness check is enabled (see the
+        Memory section above).  Default ``False``.
+
     Returns
     -------
     Iterator[tuple[str, str]] or Iterator[list[str]]
@@ -365,6 +413,15 @@ def read_fasta_stream(
     read_fasta : Load and return the whole file as a dict or list.
     write_fasta : Write sequences out to a FASTA file.
     """
+
+    # Now that the streaming defaults are flat (duplicate_record_action='ignore'),
+    # a caller who only flips expect_unique_header=True would otherwise trip the
+    # 'cannot expect unique headers and ignore duplicate records' guard below.
+    # Since unique headers already preclude duplicate records, transparently
+    # promote the default 'ignore' -> 'fail' so expect_unique_header=True works on
+    # its own.
+    if expect_unique_header and duplicate_record_action == 'ignore':
+        duplicate_record_action = 'fail'
 
     # Validate arguments eagerly (this function is not itself a generator,
     # so its body runs at call time -- bad keywords fail fast, before any
@@ -387,6 +444,29 @@ def read_fasta_stream(
     if output_filename is not None:
         if os.path.abspath(output_filename) == os.path.abspath(filename):
             raise ProtfastaException("keyword 'output_filename' must differ from 'filename' when streaming")
+
+    # Warn (once, eagerly) if a memory-growing check is enabled, so the caller
+    # knows their peak memory will scale with the number of records rather than
+    # staying flat. The checks are still performed -- this only surfaces the cost
+    # and the flat-memory recipe.
+    if not silence_warnings:
+        growing = []
+        if expect_unique_header:
+            growing.append("expect_unique_header=True")
+        if duplicate_record_action in ('fail', 'remove'):
+            growing.append("duplicate_record_action=%r" % duplicate_record_action)
+        if duplicate_sequence_action in ('fail', 'remove'):
+            growing.append("duplicate_sequence_action=%r" % duplicate_sequence_action)
+        if growing:
+            warnings.warn(
+                "read_fasta_stream(): %s require O(number of records) bookkeeping, "
+                "so peak memory grows with file size rather than staying flat. For "
+                "truly flat, file-size-independent streaming set expect_unique_header="
+                "False, duplicate_record_action='ignore' and duplicate_sequence_action="
+                "'ignore'. Pass silence_warnings=True to suppress this message."
+                % ", ".join(growing),
+                stacklevel=2,
+            )
 
     return _io._stream_fasta(filename,
                              expect_unique_header=expect_unique_header,

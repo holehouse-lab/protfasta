@@ -1449,8 +1449,12 @@ class TestReadFastaStream:
             list(protfasta.read_fasta_stream(DUPLICATE_SEQ_FILE, duplicate_sequence_action='fail'))
 
     def test_duplicate_record_fail_raises(self):
+        # duplicate_record_action defaults to 'ignore' (flat memory), so opt in
+        # to 'fail' explicitly to exercise duplicate-record detection.
         with pytest.raises(ProtfastaException):
-            list(protfasta.read_fasta_stream(DUPLICATE_RECORD_FILE, expect_unique_header=False))
+            list(protfasta.read_fasta_stream(DUPLICATE_RECORD_FILE,
+                                             expect_unique_header=False,
+                                             duplicate_record_action='fail'))
 
     def test_eager_validation_bad_kwarg(self):
         # Bad keyword must raise at call time, before any iteration begins.
@@ -1489,3 +1493,63 @@ class TestReadFastaStream:
         list(stream)
         captured = capsys.readouterr()
         assert 'duplicate sequences' in captured.out.lower() or 'Streamed' in captured.out
+
+    # -- memory-growth warning / flat-memory mode -----------------------------
+
+    def test_flat_by_default_no_warning(self):
+        """The defaults are memory-flat, so no warning is emitted."""
+        import warnings
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            protfasta.read_fasta_stream(SIMPLE_FILE)
+        assert not [w for w in caught if "O(number of records)" in str(w.message)]
+
+    def test_warns_when_check_enabled(self):
+        """Opting into a duplicate/uniqueness check emits a one-time memory warning."""
+        with pytest.warns(UserWarning, match=r"O\(number of records\)"):
+            protfasta.read_fasta_stream(SIMPLE_FILE, expect_unique_header=True)
+
+    def test_warns_lists_the_enabled_checks(self):
+        """The warning names the specific options that cause the growth."""
+        with pytest.warns(UserWarning, match="duplicate_sequence_action"):
+            protfasta.read_fasta_stream(
+                SIMPLE_FILE,
+                expect_unique_header=False,
+                duplicate_record_action='ignore',
+                duplicate_sequence_action='fail',
+            )
+
+    def test_no_warning_when_flat(self):
+        """With every check disabled, streaming emits no memory warning."""
+        import warnings
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            protfasta.read_fasta_stream(
+                SIMPLE_FILE,
+                expect_unique_header=False,
+                duplicate_record_action='ignore',
+                duplicate_sequence_action='ignore',
+            )
+        assert not [w for w in caught if "O(number of records)" in str(w.message)]
+
+    def test_silence_warnings_suppresses(self):
+        """silence_warnings=True suppresses the memory warning even with checks on."""
+        import warnings
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            protfasta.read_fasta_stream(SIMPLE_FILE, silence_warnings=True)
+        assert not [w for w in caught if "O(number of records)" in str(w.message)]
+
+    def test_flat_options_content_parity(self):
+        """Flat streaming yields the same records as read_fasta."""
+        import warnings
+        ref = protfasta.read_fasta(SIMPLE_FILE, return_list=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            streamed = list(protfasta.read_fasta_stream(
+                SIMPLE_FILE,
+                expect_unique_header=False,
+                duplicate_record_action='ignore',
+                duplicate_sequence_action='ignore',
+            ))
+        assert [list(r) for r in streamed] == ref

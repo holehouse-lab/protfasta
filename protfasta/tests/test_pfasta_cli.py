@@ -111,6 +111,10 @@ class TestPrintStatisticalSummary:
         assert "[STATS]" in out
         assert "Total number of sequences" in out
 
+    def test_empty_dataset_does_not_raise(self, capsys):
+        print_statistical_summary([])
+        assert "[STATS]" in capsys.readouterr().out
+
 
 # ── CLI integration tests via in-process main() ───────────────────────────
 
@@ -312,6 +316,30 @@ class TestCLILengthFilters:
                 "--no-outputfile", "--silent",
                 monkeypatch=monkeypatch,
             )
+
+    def test_shortest_seq_zero_is_honoured(self, tmp_path, monkeypatch):
+        # 0 is falsy, but an explicitly-passed 0 must still apply the filter
+        # (keeping every sequence of length > 0, i.e. all of them).
+        outfile = str(tmp_path / "out.fasta")
+        _run_main(
+            SIMPLE_FILE, "-o", outfile,
+            "--shortest-seq", "0", "--silent",
+            monkeypatch=monkeypatch,
+        )
+        assert len(protfasta.read_fasta(outfile)) == len(protfasta.read_fasta(SIMPLE_FILE))
+
+    def test_longest_seq_zero_is_honoured(self, tmp_path, monkeypatch):
+        # --longest-seq 0 discards everything, so pfasta exits cleanly
+        # without writing an output file.
+        outfile = str(tmp_path / "out.fasta")
+        with pytest.raises(SystemExit) as exc:
+            _run_main(
+                SIMPLE_FILE, "-o", outfile,
+                "--longest-seq", "0", "--silent",
+                monkeypatch=monkeypatch,
+            )
+        assert exc.value.code == 0
+        assert not os.path.exists(outfile)
 
 
 class TestCLILineLength:

@@ -11,7 +11,7 @@ from __future__ import annotations
 import random
 import sys
 from os import path
-from typing import Optional, Callable, Union
+from typing import Callable, Optional, cast
 
 import protfasta
 import argparse
@@ -118,16 +118,20 @@ def print_statistical_summary(data: list[list[str]]) -> None:
     for d in data:
         length_list.append(len(d[1]))
 
+    if not length_list:
+        print('[STATS]: Total number of sequences : 0 ')
+        return
+
     length_list.sort()
     q25 = length_list[int(len(length_list)*0.25)]
     q50 = length_list[int(len(length_list)*0.50)]
     q75 = length_list[int(len(length_list)*0.75)]
     print('[STATS]: Total number of sequences : %i ' % (len(length_list)))
-    print('[STATS]: 25th percentile lengt     : %i ' % (q25))
+    print('[STATS]: 25th percentile length    : %i ' % (q25))
     print('[STATS]: Median length             : %i ' % (q50))
-    print('[STATS]: 75th percentile lengt     : %i ' % (q75))
+    print('[STATS]: 75th percentile length    : %i ' % (q75))
     print('[STATS]: Longest sequence          : %i ' % (length_list[-1]))
-    print('[STATS]: Shortes sequence          : %i ' % (length_list[0]))
+    print('[STATS]: Shortest sequence         : %i ' % (length_list[0]))
 
     
 
@@ -156,11 +160,11 @@ def main() -> None:
     parser.add_argument("--non-unique-header", help="", action='store_true') 
     parser.add_argument("--duplicate-record", help="How to deal with duplicate records in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = fail)") 
     parser.add_argument("--duplicate-sequence", help="How to deal with duplicate sequences in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = ignore)") 
-    parser.add_argument("--invalid-sequence", help="How to deal with duplicate sequences in the file. Available options are shown\nbelow and described (default = fail)\n\nignore : skip invalid residues \nfail   : throw exception on invalid sequences \nremove : remove sequences with invalid characters \nconvert-all : Convert B->N, U->C, X->G, Z->Q, '*'->'',\n             '-'->'' (and throw exception if remaining invalid characters exist)\nconvert-res : same as convert-all except ignore alignment character '-'\nconvert-all-ignore - same as convert-all except invalid characters left over are ignored.\nconvert-res-ignore - same as convert-res except invalid characters left over are ignored.   \nconvert-all-remove - same as convert-all except sequences with invalid characters are removed.\nconvert-res-remove - same as convert-res except sequences with invalid characters are removed.   ")  
-    parser.add_argument("--number-lines", help="Number of lines for FASTA file") 
-    parser.add_argument("--shortest-seq", help="Shortest sequence included ") 
-    parser.add_argument("--longest-seq", help="Longest sequence included") 
-    parser.add_argument("--random-subsample", help="Randomly sub-sample from")
+    parser.add_argument("--invalid-sequence", help="How to deal with invalid (non-standard) residues in the file. Available options\nare shown below and described (default = fail)\n\nignore : skip invalid residues \nfail   : throw exception on invalid sequences \nremove : remove sequences with invalid characters \nconvert-all : Convert B->N, U->C, X->G, Z->Q, '*'->'',\n             '-'->'' (and throw exception if remaining invalid characters exist)\nconvert-res : same as convert-all except ignore alignment character '-'\nconvert-all-ignore - same as convert-all except invalid characters left over are ignored.\nconvert-res-ignore - same as convert-res except invalid characters left over are ignored.   \nconvert-all-remove - same as convert-all except sequences with invalid characters are removed.\nconvert-res-remove - same as convert-res except sequences with invalid characters are removed.   ")  
+    parser.add_argument("--number-lines", help="Number of residues per line in the output FASTA file (default = 60)")
+    parser.add_argument("--shortest-seq", help="Minimum length filter; sequences shorter than or equal to this length are discarded")
+    parser.add_argument("--longest-seq", help="Maximum length filter; sequences longer than or equal to this length are discarded")
+    parser.add_argument("--random-subsample", help="Randomly sub-sample this many sequences from the final set")
     parser.add_argument("--print-statistics", help="Print information on the sequences",action='store_true') 
     parser.add_argument("--no-outputfile", help="Prevents pfasta from writing an output file ",action='store_true') 
     parser.add_argument("--silent", help="Generate no output at all to STDOUT", action='store_true') 
@@ -293,15 +297,17 @@ def main() -> None:
     else:
         number_of_lines = 60
 
-    if args.shortest_seq:
+    # note we compare against None (rather than relying on truthiness) so that
+    # an explicitly-passed value of 0 is honoured rather than silently ignored
+    if args.shortest_seq is not None:
         shortest = validate_int(args.shortest_seq, 0, '--shortest-seq')
     else:
-        shortest = False
+        shortest = None
 
-    if args.longest_seq:
+    if args.longest_seq is not None:
         longest = validate_int(args.longest_seq, 0, '--longest-seq')
     else:
-        longest = False
+        longest = None
 
     # sanitize and set uniuqe header
     if args.print_statistics:
@@ -309,21 +315,22 @@ def main() -> None:
     else:
         print_stats = False
 
-    if args.random_subsample:
+    if args.random_subsample is not None:
         random_subsample = validate_int(args.random_subsample, 0, '--random-subsample')
     else:
-        random_subsample = False
+        random_subsample = None
 
-    if longest and shortest:
+    if longest is not None and shortest is not None:
         if longest < shortest:
             exit_error('--longest-seq must be longer than --shortest-seq')
 
+    hp: Optional[Callable[[str], str]]
     if args.remove_comma_from_header:
-        def hp(s):
+        def hp(s: str) -> str:
             return s.replace(',',';')
     else:
         hp = None
-        
+
 
 
     # read in
@@ -333,7 +340,10 @@ def main() -> None:
         verb=False
     else:
         verb=True
-    data = protfasta.read_fasta(args.filename, 
+    # return_list=True is passed below, so the return value is always a list of
+    # [header, sequence] pairs -- cast so the length/subsample filters that
+    # follow are type-checkable.
+    data: list[list[str]] = cast(list, protfasta.read_fasta(args.filename,
                                 expect_unique_header=expect_unique_header,
                                 header_parser=hp,
                                 duplicate_sequence_action=duplicate_sequence,
@@ -341,19 +351,20 @@ def main() -> None:
                                 invalid_sequence_action=invalid_sequence,
                                 correction_dictionary = correction_dict,
                                 return_list=True,
-                                verbose=verb)
-       
-    
-    # if length filters are 
-    if longest:
+                                verbose=verb))
+
+
+
+    # if length filters are requested
+    if longest is not None:
         stdout('[INFO]: Filtering out sequences longer than %s'%(longest),silent)
         tmp = []
         for i in data:
             if len(i[1]) < longest:
                 tmp.append(i)
         data = tmp
-    
-    if shortest:
+
+    if shortest is not None:
         stdout('[INFO]: Filtering out sequences shorter than %s'%(shortest), silent)
         tmp = []
         for i in data:
@@ -362,15 +373,11 @@ def main() -> None:
         data = tmp
 
     if len(data) < 1:
-        if longest or shortest:
-            stdout('[INFO]: 0 sequences found that match the longes/shortest filtering criterion',silent)
-            sys.exit(0)
-        else:
-            stdout('[INFO]: 0 sequences found that match the longes/shortest filtering criterion',silent)
-            sys.exit(0)
+        stdout('[INFO]: 0 sequences remain after filtering',silent)
+        sys.exit(0)
 
 
-    if random_subsample:
+    if random_subsample is not None:
         if len(data) < random_subsample:
             stdout('[INFO]: Cannot subsample as the requested number to subsample (%i) is more than\n        the total number of sequences (%i). Using all sequences'%(random_subsample, len(data)), silent)
         else:
@@ -379,8 +386,8 @@ def main() -> None:
         x = list(range(0,len(data)))
         random.shuffle(x)
         idx = x[0:random_subsample]
-        for i in idx:
-            tmp.append(data[i])
+        for position in idx:
+            tmp.append(data[position])
         data = tmp
 
 

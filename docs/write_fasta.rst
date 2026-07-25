@@ -15,8 +15,9 @@ which simply calls ``write_fasta`` internally.
 Keyword arguments
 ...................
 
-    *  ``filename`` - destination path. Conventionally ends with
-       ``.fasta`` or ``.fa`` but this is not enforced.
+    *  ``filename`` - destination path, either a string or a
+       :class:`pathlib.Path`. Conventionally ends with ``.fasta`` or
+       ``.fa`` but this is not enforced.
 
     *  ``linelength`` (default ``60``) - maximum residues per line.
        Values below ``5`` are clamped to ``5``. Set to ``0``, ``None``
@@ -25,6 +26,20 @@ Keyword arguments
     *  ``append_to_fasta`` (default ``False``) - when ``True``, new
        entries are appended to an existing file rather than
        overwriting it.
+
+
+Error handling
+...............
+
+``write_fasta`` raises a ``ProtfastaException`` rather than letting a
+lower-level error escape, so a single ``except`` clause is enough:
+
+    *  ``fasta_data`` is neither a dictionary nor a list.
+    *  An element of a list is not a two-item ``[header, sequence]``
+       pair.
+    *  ``linelength`` cannot be interpreted as an integer. Note that a
+       numerical string (``'60'``) *is* accepted and cast.
+    *  A sequence is empty - empty records are never silently written.
 
 
 Performance notes

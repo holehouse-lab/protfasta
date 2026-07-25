@@ -5,7 +5,7 @@ duplicate handling used by the protfasta processing pipeline.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, cast
 
 import hashlib
 
@@ -28,8 +28,16 @@ def _seq_hash(seq: str) -> bytes:
     Used by duplicate-detection utilities so the lookup structure stores
     128-bit digests instead of whole (potentially very long) sequences.
     Collision probability for 10**8 sequences is ~10**-22.
+
+    Note that sequences are encoded as UTF-8 rather than ASCII.  Duplicate
+    detection runs *before* invalid-residue handling, so it must be able to
+    digest whatever the file contained -- including non-ASCII junk that a
+    later ``invalid_sequence_action`` will flag or strip.  The
+    ``surrogatepass`` handler additionally lets lone surrogates (which can
+    arrive from a file read with a permissive error handler) through
+    unharmed.
     """
-    return hashlib.blake2b(seq.encode('ascii', 'surrogatepass'), digest_size=16).digest()
+    return hashlib.blake2b(seq.encode('utf-8', 'surrogatepass'), digest_size=16).digest()
 
 
 
@@ -123,7 +131,7 @@ def convert_to_valid(
     # key is a single character (the common case), else fall back to the
     # original str.replace loop which handles multi-character keys.
     if all(len(k) == 1 for k in correction_dictionary):
-        return seq.translate(str.maketrans(correction_dictionary))
+        return seq.translate(str.maketrans(cast('dict[str, str | int | None]', correction_dictionary)))
 
     for i in correction_dictionary:
         seq = seq.replace(i, correction_dictionary[i])

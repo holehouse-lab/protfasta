@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from typing import Optional, Union
 
-from . import io as _io
 from . import utilities as _utilities
 from .protfasta_exceptions import ProtfastaException
 
@@ -102,7 +101,12 @@ def _deal_with_invalid_sequences(
 
     # convert invalid sequences
     if invalid_sequence_action == 'convert' or invalid_sequence_action == 'convert-ignore':
-        (updated, count) = _utilities.convert_invalid_sequences(raw, correction_dictionary, alignment)
+
+        # correction_dictionary can arrive as the sentinel False (see the
+        # 'convert-remove' two-pass logic in read_fasta); normalize it to None
+        # here, which selects the built-in conversion table
+        cd = correction_dictionary if isinstance(correction_dictionary, dict) else None
+        (updated, count) = _utilities.convert_invalid_sequences(raw, cd, alignment)
         if verbose:
             print('[INFO]: Converted %i sequences to valid sequences'%(count))
 

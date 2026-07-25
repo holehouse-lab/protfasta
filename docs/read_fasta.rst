@@ -60,6 +60,13 @@ Incompatible option combinations (for example,
 ``duplicate_record_action='ignore'``) are caught before the file is
 read.
 
+Both ``filename`` and ``output_filename`` accept either a string or a
+:class:`pathlib.Path`. Anything that goes wrong - a bad keyword, a
+missing or unreadable file, an invalid residue under
+``invalid_sequence_action='fail'`` - is raised as a
+``ProtfastaException``, so callers only need to catch one exception
+type.
+
 
 Default conversion table
 ..........................

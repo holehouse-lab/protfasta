@@ -26,10 +26,11 @@ project = 'protfasta'
 copyright = ("2020-2026, Alex Holehouse (Holehouse lab - http://holehouse.wustl.edu) ")
 author = 'Alex S. Holehouse'
 
+# The full version, including alpha/beta/rc tags, taken from the installed
+# package so the docs never drift from the code they describe.
+release = protfasta.__version__
 # The short X.Y version
-version = ''
-# The full version, including alpha/beta/rc tags
-release = ''
+version = '.'.join(release.split('.')[:2])
 
 
 # -- General configuration ---------------------------------------------------
@@ -73,7 +74,7 @@ master_doc = 'index'
 #
 # This is also used if you do content translation via gettext catalogs.
 # Usually you set "language" from the command line for these cases.
-language = None
+language = 'en'
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.

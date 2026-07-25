@@ -25,6 +25,9 @@ Organized into test classes by functional area:
 - TestReadFastaOutputFile: output_filename parameter
 - TestReadFastaCorrectionDictionary: correction_dictionary parameter
 - TestWriteFasta: write_fasta function
+- TestNonASCIISequences: Non-ASCII characters in sequence data
+- TestPathLikeArguments: pathlib.Path accepted wherever a filename is
+- TestFileOpenErrors: OS-level file errors surface as ProtfastaException
 - TestEndToEndCombinations: Combined parameter interactions
 - TestReadFastaStream: read_fasta_stream streaming parser
 """
@@ -1278,6 +1281,154 @@ class TestWriteFasta:
         for k in data:
             assert readback[k] == data[k]
 
+    def test_unsupported_container_raises(self, tmp_path):
+        # A tuple of pairs is not supported - this should be a clean
+        # ProtfastaException rather than an UnboundLocalError.
+        outfile = str(tmp_path / 'test.fasta')
+        with pytest.raises(ProtfastaException):
+            protfasta.write_fasta((('h1', 'ACDEF'),), outfile)
+
+    def test_generator_input_raises(self, tmp_path):
+        outfile = str(tmp_path / 'test.fasta')
+        with pytest.raises(ProtfastaException):
+            protfasta.write_fasta((x for x in [['h1', 'ACDEF']]), outfile)
+
+    def test_numeric_string_linelength_accepted(self, tmp_path):
+        outfile = str(tmp_path / 'test.fasta')
+        protfasta.write_fasta({'header': 'A' * 120}, outfile, linelength='60')
+        with open(outfile) as f:
+            seq_lines = [l for l in f if not l.startswith('>') and l.strip()]
+        assert len(seq_lines) == 2
+
+    def test_non_numeric_linelength_raises(self, tmp_path):
+        outfile = str(tmp_path / 'test.fasta')
+        with pytest.raises(ProtfastaException):
+            protfasta.write_fasta({'header': 'ACDEF'}, outfile, linelength='sixty')
+
+    def test_linelength_zero_no_wrap(self, tmp_path):
+        outfile = str(tmp_path / 'test.fasta')
+        protfasta.write_fasta({'header': 'A' * 200}, outfile, linelength=0)
+        with open(outfile) as f:
+            seq_lines = [l for l in f if not l.startswith('>') and l.strip()]
+        assert len(seq_lines) == 1
+
+
+# ---------------------------------------------------------------------------
+# TestNonASCIISequences
+# ---------------------------------------------------------------------------
+class TestNonASCIISequences:
+    """Non-ASCII characters in sequence data must not crash the parser.
+
+    Duplicate detection hashes every sequence *before* invalid-residue
+    handling gets a chance to flag or strip it, so the hashing step has to
+    tolerate arbitrary characters.
+    """
+
+    @pytest.fixture
+    def nonascii_file(self, tmp_path):
+        f = tmp_path / 'nonascii.fasta'
+        f.write_text('>h1\nACDEÉF\n>h2\nGHIKL\n', encoding='utf-8')
+        return str(f)
+
+    def test_seq_hash_handles_non_ascii(self):
+        digest = _utilities._seq_hash('ACDEÉF')
+        assert isinstance(digest, bytes)
+        assert len(digest) == 16
+
+    def test_seq_hash_distinguishes_non_ascii(self):
+        assert _utilities._seq_hash('ACDÉ') != _utilities._seq_hash('ACDÊ')
+
+    def test_ignore_keeps_non_ascii_record(self, nonascii_file):
+        result = protfasta.read_fasta(nonascii_file, invalid_sequence_action='ignore')
+        assert len(result) == 2
+        assert result['h1'] == 'ACDEÉF'
+
+    def test_fail_raises_protfasta_exception(self, nonascii_file):
+        # Must be a ProtfastaException, not a UnicodeEncodeError
+        with pytest.raises(ProtfastaException):
+            protfasta.read_fasta(nonascii_file)
+
+    def test_remove_drops_non_ascii_record(self, nonascii_file):
+        result = protfasta.read_fasta(nonascii_file, invalid_sequence_action='remove')
+        assert len(result) == 1
+        assert 'h2' in result
+
+    def test_duplicate_sequence_remove_with_non_ascii(self, nonascii_file):
+        result = protfasta.read_fasta(
+            nonascii_file,
+            invalid_sequence_action='ignore',
+            duplicate_sequence_action='remove',
+        )
+        assert len(result) == 2
+
+    def test_streaming_handles_non_ascii(self, nonascii_file):
+        streamed = list(protfasta.read_fasta_stream(
+            nonascii_file,
+            invalid_sequence_action='ignore',
+            duplicate_sequence_action='remove',
+            silence_warnings=True,
+        ))
+        assert len(streamed) == 2
+
+
+# ---------------------------------------------------------------------------
+# TestPathLikeArguments
+# ---------------------------------------------------------------------------
+class TestPathLikeArguments:
+    """pathlib.Path objects are accepted anywhere a filename is expected."""
+
+    def test_read_fasta_accepts_path(self):
+        result = protfasta.read_fasta(Path(SIMPLE_FILE))
+        assert len(result) == 9
+
+    def test_read_fasta_output_filename_accepts_path(self, tmp_path):
+        outfile = tmp_path / 'out.fasta'
+        protfasta.read_fasta(SIMPLE_FILE, output_filename=outfile)
+        assert outfile.exists()
+
+    def test_write_fasta_accepts_path(self, tmp_path):
+        outfile = tmp_path / 'out.fasta'
+        protfasta.write_fasta({'h1': 'ACDEF'}, outfile)
+        assert protfasta.read_fasta(outfile)['h1'] == 'ACDEF'
+
+    def test_read_fasta_stream_accepts_path(self):
+        streamed = list(protfasta.read_fasta_stream(Path(SIMPLE_FILE)))
+        assert len(streamed) == 9
+
+    def test_stream_output_filename_accepts_path(self, tmp_path):
+        outfile = tmp_path / 'out.fasta'
+        list(protfasta.read_fasta_stream(SIMPLE_FILE, output_filename=outfile))
+        assert len(protfasta.read_fasta(outfile)) == 9
+
+    def test_integer_filename_rejected(self):
+        # open() would treat an int as a file descriptor and silently read
+        # from it; we want a clear error instead.
+        with pytest.raises(ProtfastaException):
+            protfasta.read_fasta(0)
+
+    def test_integer_filename_rejected_streaming(self):
+        with pytest.raises(ProtfastaException):
+            protfasta.read_fasta_stream(0)
+
+
+# ---------------------------------------------------------------------------
+# TestFileOpenErrors
+# ---------------------------------------------------------------------------
+class TestFileOpenErrors:
+    """Every file-open failure mode surfaces as a ProtfastaException."""
+
+    def test_directory_instead_of_file(self, tmp_path):
+        with pytest.raises(ProtfastaException):
+            protfasta.read_fasta(str(tmp_path))
+
+    def test_directory_instead_of_file_streaming(self, tmp_path):
+        with pytest.raises(ProtfastaException):
+            list(protfasta.read_fasta_stream(str(tmp_path)))
+
+    def test_missing_file_message(self):
+        with pytest.raises(ProtfastaException, match='Unable to find file'):
+            protfasta.read_fasta('/nonexistent/path/file.fasta')
+
 
 # ---------------------------------------------------------------------------
 # TestEndToEndCombinations
@@ -1439,14 +1590,23 @@ class TestReadFastaStream:
         streamed = list(protfasta.read_fasta_stream(FIXABLE_INVALID_FILE, invalid_sequence_action='convert-remove'))
         assert [list(r) for r in streamed] == ref
 
+    # Note the tests below opt into memory-growing duplicate checks but are not
+    # testing the warning that accompanies them, so they pass
+    # silence_warnings=True to keep the test output clean. The warning itself is
+    # covered by the dedicated tests at the end of this class.
+
     def test_duplicate_sequence_remove_parity(self):
         ref = protfasta.read_fasta(DUPLICATE_SEQ_FILE, duplicate_sequence_action='remove', return_list=True)
-        streamed = list(protfasta.read_fasta_stream(DUPLICATE_SEQ_FILE, duplicate_sequence_action='remove'))
+        streamed = list(protfasta.read_fasta_stream(DUPLICATE_SEQ_FILE,
+                                                    duplicate_sequence_action='remove',
+                                                    silence_warnings=True))
         assert [list(r) for r in streamed] == ref
 
     def test_duplicate_sequence_fail_raises(self):
         with pytest.raises(ProtfastaException):
-            list(protfasta.read_fasta_stream(DUPLICATE_SEQ_FILE, duplicate_sequence_action='fail'))
+            list(protfasta.read_fasta_stream(DUPLICATE_SEQ_FILE,
+                                             duplicate_sequence_action='fail',
+                                             silence_warnings=True))
 
     def test_duplicate_record_fail_raises(self):
         # duplicate_record_action defaults to 'ignore' (flat memory), so opt in
@@ -1454,7 +1614,8 @@ class TestReadFastaStream:
         with pytest.raises(ProtfastaException):
             list(protfasta.read_fasta_stream(DUPLICATE_RECORD_FILE,
                                              expect_unique_header=False,
-                                             duplicate_record_action='fail'))
+                                             duplicate_record_action='fail',
+                                             silence_warnings=True))
 
     def test_eager_validation_bad_kwarg(self):
         # Bad keyword must raise at call time, before any iteration begins.
@@ -1488,6 +1649,7 @@ class TestReadFastaStream:
             DUPLICATE_SEQ_FILE,
             duplicate_sequence_action='remove',
             verbose=True,
+            silence_warnings=True,
         )
         # Nothing summarised until the stream is consumed.
         list(stream)

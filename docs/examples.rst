@@ -197,6 +197,13 @@ sequences as records flow past:
         # 'seq' is already converted; duplicates have been skipped
         ...
 
+Note that ``duplicate_sequence_action='remove'`` has to remember every
+sequence it has already seen, so it costs ``O(records)`` memory and
+``read_fasta_stream`` will warn you about that. Converting invalid
+residues, by contrast, is a purely per-record decision and stays flat.
+Pass ``silence_warnings=True`` once you have made the trade-off
+knowingly.
+
 
 **Example 13 - Let read_fasta_stream write the cleaned file for you**
 

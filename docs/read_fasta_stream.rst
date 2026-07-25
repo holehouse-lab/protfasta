@@ -2,8 +2,8 @@ read_fasta_stream
 =================
 
 ``read_fasta_stream`` is the **streaming** counterpart to
-:func:`protfasta.read_fasta`. It takes an identical set of arguments,
-but instead of reading the whole file and returning a fully-materialised
+:func:`protfasta.read_fasta`. It takes the same set of arguments, but
+instead of reading the whole file and returning a fully-materialised
 ``dict`` or ``list``, it returns a **generator** that yields one
 sanitized record at a time. This keeps peak memory bounded and makes it
 possible to process FASTA files far larger than RAM (tens or hundreds of
@@ -48,6 +48,16 @@ The full parameter set of :func:`protfasta.read_fasta` is supported, but
 a few arguments behave slightly differently because a stream never sees
 the whole file up front:
 
+    *  **Duplicate-checking defaults.** ``read_fasta_stream`` defaults to
+       ``expect_unique_header=False`` and
+       ``duplicate_record_action='ignore'``, whereas ``read_fasta``
+       defaults to ``expect_unique_header=True`` and
+       ``duplicate_record_action='fail'``. **Duplicate headers and
+       duplicate records are therefore not detected by default when
+       streaming.** This is deliberate - each of those checks costs
+       ``O(records)`` memory, which would defeat the point of a streamer
+       built for files larger than RAM. See `Memory characteristics`_
+       below.
     *  **Return type.** ``return_list=False`` (default) yields
        ``(header, sequence)`` tuples; ``return_list=True`` yields
        ``[header, sequence]`` lists. There is no dictionary return type.
@@ -71,13 +81,40 @@ the whole file up front:
 Memory characteristics
 ......................
 
-Peak memory is ``O(single record)`` for the sequence data itself. The
-duplicate- and uniqueness-handling actions add auxiliary bookkeeping
-that grows with the *number of records* (headers plus 16-byte sequence
-digests - never whole sequences), so they are still far lighter than a
-full load. When ``expect_unique_header=False`` and every duplicate
-action is ``'ignore'``, no bookkeeping is allocated at all and memory is
-flat regardless of file size.
+**With the default arguments, ``read_fasta_stream`` is flat in memory.**
+Only one record is held at a time and no per-record bookkeeping is kept,
+so peak memory is independent of file size and files far larger than RAM
+stream without issue.
+
+The duplicate- and uniqueness-handling checks are still available, but
+each one has to remember what it has already seen, so enabling any of
+them adds auxiliary state that grows with the *number of records*:
+
+    *  ``expect_unique_header=True`` keeps a running set of every header;
+    *  ``duplicate_record_action`` set to ``'fail'`` or ``'remove'``
+       keeps a running header-to-sequence-digest map;
+    *  ``duplicate_sequence_action`` set to ``'fail'`` or ``'remove'``
+       keeps a running set of sequence digests.
+
+Only 16-byte digests are stored - never whole sequences - so this is
+still far lighter than a full load, but on a file with hundreds of
+millions of records it can amount to hundreds of megabytes or more.
+Whenever one of these checks is enabled a one-time warning is emitted
+naming the responsible keyword(s); pass ``silence_warnings=True`` to
+suppress it. The check itself is always performed either way.
+
+Note that ``expect_unique_header=True`` on its own is sufficient - it
+transparently promotes the default ``duplicate_record_action='ignore'``
+to ``'fail'``, since unique headers already preclude duplicate records.
+
+To restore full ``read_fasta``-equivalent checking while streaming:
+
+.. code-block:: python
+
+    import protfasta
+
+    stream = protfasta.read_fasta_stream('input.fasta',
+                                         expect_unique_header=True)
 
 
 Basic usage

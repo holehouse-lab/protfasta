@@ -26,6 +26,17 @@ else:
 
 
 
+__all__ = [
+    'read_fasta',
+    'read_fasta_stream',
+    'write_fasta',
+    'ProtfastaException',
+    'STANDARD_AAS',
+    'STANDARD_CONVERSION',
+    '__version__',
+]
+
+
 _ROOT = os.path.abspath(os.path.dirname(__file__))
 
 
@@ -86,7 +97,7 @@ def read_fasta(
 
     Parameters
     ----------
-    filename : str
+    filename : str or os.PathLike
         Path to the FASTA file to read.
 
     expect_unique_header : bool, optional
@@ -151,7 +162,7 @@ def read_fasta(
         instead of a dictionary.  Required when duplicate headers are
         present and you want to keep all of them.  Default ``False``.
 
-    output_filename : str or None, optional
+    output_filename : str, os.PathLike, or None, optional
         If provided, the final (sanitized) set of sequences is written
         to a new FASTA file at this path before the function returns.
 
@@ -186,6 +197,7 @@ def read_fasta(
 
     # first we sanity check all of the inputs provided. NOTE. If additional functionality is added, new
     # keywords MUST be sanity checked in this function
+    _io.check_filename(filename)
     _io.check_inputs(expect_unique_header,
                      header_parser, 
                      check_header_parser,
@@ -242,12 +254,9 @@ def read_fasta(
 
     # if we asked for a list...
     if return_list is True:
-        pass    
-    else:
-        updated = _utilities.convert_list_to_dictionary(updated, verbose)
+        return updated
 
-        
-    return updated
+    return _utilities.convert_list_to_dictionary(updated, verbose)
 
 
 
@@ -334,7 +343,7 @@ def read_fasta_stream(
 
     Parameters
     ----------
-    filename : str
+    filename : str or os.PathLike
         Path to the FASTA file to read.
 
     expect_unique_header : bool, optional
@@ -375,7 +384,7 @@ def read_fasta_stream(
         otherwise yield ``(header, sequence)`` tuples.  Default
         ``False``.
 
-    output_filename : str or None, optional
+    output_filename : str, os.PathLike, or None, optional
         If provided, each sanitized record is written to this path as it
         is yielded (60 residues per line, as in :func:`write_fasta`).
         The file is only complete once the generator has been fully
@@ -426,6 +435,7 @@ def read_fasta_stream(
     # Validate arguments eagerly (this function is not itself a generator,
     # so its body runs at call time -- bad keywords fail fast, before any
     # iteration begins, matching read_fasta).
+    _io.check_filename(filename)
     _io.check_inputs(expect_unique_header,
                      header_parser,
                      check_header_parser,
@@ -503,7 +513,7 @@ def write_fasta(
         amino-acid sequences.  If a list, each element must be a
         two-element list ``[header, sequence]``.
 
-    filename : str
+    filename : str or os.PathLike
         Destination file path.  Should conventionally end with
         ``.fasta`` or ``.fa``, but this is not enforced.
 
@@ -525,14 +535,20 @@ def write_fasta(
     Raises
     ------
     ProtfastaException
-        If a sequence is empty or a list element does not contain
-        exactly two items.
+        If *fasta_data* is neither a dictionary nor a list, if a list
+        element does not contain exactly two items, if *linelength* is
+        not an integer (or ``0``/``None``/``False``), or if a sequence
+        is empty.
     """
 
     # This part of code means we can pass either a dictionary or a list of lists
     # in for write_fasta to deal with
 
-    if type(fasta_data) == list:
+    if isinstance(fasta_data, dict):
+        def get_sequence():
+            return (entry, fasta_data[entry])
+
+    elif isinstance(fasta_data, list):
         def get_sequence():
             return (entry[0], entry[1])
 
@@ -541,19 +557,26 @@ def write_fasta(
             if len(i)  != 2:
                 raise ProtfastaException('While processing a list for write_fasta_file at least one of the elements was not a 2-position sublist:\n%s'%(str(i)))
 
-    if type(fasta_data) == dict:
-        def get_sequence():
-            return (entry, fasta_data[entry])
-        
-    # override line length for sane input. N
-    if linelength == False or linelength == None or linelength < 1:
+    else:
+        raise ProtfastaException("keyword 'fasta_data' must be a dictionary of header:sequence pairs or a list of [header, sequence] pairs (got %s)" % (type(fasta_data).__name__))
+
+    # override line length for sane input. Note the int() cast happens before
+    # any numerical comparison so that a non-numerical linelength raises a
+    # protfasta exception rather than an opaque TypeError.
+    if linelength is None or linelength is False:
         linelength = False
-        
-    else:        
+
+    else:
         # cast linelength to an integer here as a soft type checking, and
-        # if it's shorter than 5 then reset to 5 
-        linelength = int(linelength)
-        if linelength < 5:
+        # if it's shorter than 5 then reset to 5
+        try:
+            linelength = int(linelength)
+        except (TypeError, ValueError):
+            raise ProtfastaException("keyword 'linelength' must be an integer, or one of 0/None/False (got %s)" % (repr(linelength)))
+
+        if linelength < 1:
+            linelength = False
+        elif linelength < 5:
             linelength = 5
 
     # set the 'mode' for open. If append_to_file==False, use 'w' and overwrite
@@ -572,7 +595,7 @@ def write_fasta(
 
             (header, seq) = get_sequence()
             if len(seq) < 1:
-                raise ProtfastaException('Seqence associated with [%s] is empty'%(header))
+                raise ProtfastaException('Sequence associated with [%s] is empty'%(header))
 
             # write the header line
             fh.write('>')

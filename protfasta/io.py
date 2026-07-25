@@ -19,10 +19,65 @@ Be kind to each other.
 
 from __future__ import annotations
 
+import os
 from typing import Callable, Iterator, Optional, Union
 
 from . import utilities as _utilities
 from .protfasta_exceptions import ProtfastaException
+
+
+def check_filename(filename) -> None:
+    """Validate that *filename* is something we can safely open.
+
+    ``open()`` happily accepts an integer and interprets it as an already-open
+    file descriptor, so a mistyped call such as ``read_fasta(0)`` would
+    silently read from stdin rather than reporting a bad argument.  This guard
+    restricts the input to a path -- a string or any
+    :class:`os.PathLike` (e.g. :class:`pathlib.Path`).
+
+    Parameters
+    ----------
+    filename : object
+        The value passed as a FASTA filename.
+
+    Raises
+    ------
+    ProtfastaException
+        If *filename* is not a string or path-like object.
+    """
+    if not isinstance(filename, (str, os.PathLike)):
+        raise ProtfastaException("keyword 'filename' must be a string or path-like object (got %s)" % (type(filename).__name__))
+
+
+def _open_fasta(filename):
+    """Open a FASTA file for reading, converting OS errors into protfasta errors.
+
+    Every failure mode of :func:`open` -- a missing file, a directory passed
+    in place of a file, a permissions problem -- is surfaced as a
+    :class:`~protfasta.protfasta_exceptions.ProtfastaException` so that
+    callers only ever need to catch one exception type.
+
+    Parameters
+    ----------
+    filename : str or os.PathLike
+        Path to the file to open.
+
+    Returns
+    -------
+    file object
+        An open, readable text file handle.
+
+    Raises
+    ------
+    ProtfastaException
+        If the file cannot be opened for any reason.
+    """
+    try:
+        return open(filename, 'r')
+    except FileNotFoundError:
+        raise ProtfastaException('Unable to find file: %s' % (filename))
+    except OSError as e:
+        raise ProtfastaException('Unable to read file: %s\nException: %s' % (filename, e))
 
 
 def check_inputs(
@@ -83,7 +138,7 @@ def check_inputs(
         Whether the caller expects a list (``True``) or dict (``False``)
         return type.
 
-    output_filename : str or None
+    output_filename : str, os.PathLike, or None
         Optional path to write the final processed sequences to.
 
     verbose : bool
@@ -119,27 +174,27 @@ def check_inputs(
                 raise ProtfastaException(f'Something went wrong when testing the header_parser function using string: {tst_string}.\nMaybe you should set check_header_parser to False? \nException: {e}')
             
 
-    # check the duplicates_record_action 
+    # check the duplicate_record_action
     if duplicate_record_action not in ['ignore','fail','remove']:
-        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail','remove'")
+        raise ProtfastaException("keyword 'duplicate_record_action' must be one of 'ignore','fail','remove'")
 
-    # check the duplicates_record_action 
+    # check the duplicate_sequence_action
     if duplicate_sequence_action not in ['ignore','fail','remove']:
-        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail', 'remove'")
+        raise ProtfastaException("keyword 'duplicate_sequence_action' must be one of 'ignore','fail', 'remove'")
 
 
-    # check the invalid_sequence 
+    # check the invalid_sequence_action
     if invalid_sequence_action not in ['ignore','fail','remove','convert','convert-ignore', 'convert-remove']:
-        raise ProtfastaException("keyword 'invalid_sequence' must be one of 'ignore','fail','remove','convert','convert-ignore', 'convert-remove'")
+        raise ProtfastaException("keyword 'invalid_sequence_action' must be one of 'ignore','fail','remove','convert','convert-ignore', 'convert-remove'")
 
     # check the return_list
     if type(return_list) != bool:
-        raise ProtfastaException("keyword 'verbose' must be a boolean")
+        raise ProtfastaException("keyword 'return_list' must be a boolean")
 
-    # check the return_list
+    # check the output_filename
     if output_filename is not None:
-        if type(output_filename) != str:
-            raise ProtfastaException("keyword 'output_filename' must be a string")
+        if not isinstance(output_filename, (str, os.PathLike)):
+            raise ProtfastaException("keyword 'output_filename' must be a string or path-like object")
 
     # check verbose
     if type(verbose) != bool:
@@ -215,10 +270,7 @@ def internal_parse_fasta_file(
     # Stream the file line-by-line rather than materializing the whole
     # file with readlines().  This keeps peak memory to O(single record)
     # which is essential for multi-gigabyte FASTA files.
-    try:
-        fh = open(filename, 'r')
-    except FileNotFoundError:
-        raise ProtfastaException('Unable to find file: %s' % (filename))
+    fh = _open_fasta(filename)
 
     if verbose:
         print('[INFO]: Read in file %s (streaming)' % (filename))
@@ -383,10 +435,7 @@ def _iter_fasta(
     ProtfastaException
         If the file cannot be opened.
     """
-    try:
-        fh = open(filename, 'r')
-    except FileNotFoundError:
-        raise ProtfastaException('Unable to find file: %s' % (filename))
+    fh = _open_fasta(filename)
 
     seq_parts: list[str] = []
     header = ''
@@ -446,7 +495,7 @@ def _write_stream_record(fh, header: str, seq: str, linelength: int = 60) -> Non
         If *seq* is empty (mirrors :func:`protfasta.write_fasta`).
     """
     if len(seq) < 1:
-        raise ProtfastaException('Seqence associated with [%s] is empty' % (header))
+        raise ProtfastaException('Sequence associated with [%s] is empty' % (header))
 
     fh.write('>')
     fh.write(header)

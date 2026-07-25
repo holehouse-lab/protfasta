@@ -57,7 +57,7 @@ For bug reports or errors please raise an issue on this github repository (see t
 
 ## Changelog
 
-* **0.1.23** (unreleased) - Bug fixes and more robust error handling.
+* **0.1.23** (July 2026) - Bug fixes and more robust error handling.
 	* Fixed a crash when a FASTA file contained non-ASCII characters in a sequence. Duplicate detection hashes every sequence before invalid-residue handling runs, and the hashing step used an ASCII encoder, so any non-ASCII byte raised an unhandled `UnicodeEncodeError` instead of being reported (or removed/converted) as an invalid residue. This affected `read_fasta(...)` with its default options.
 	* All file-open failures now raise a `ProtfastaException`. Previously only a missing file was handled, so passing a directory or an unreadable file raised a raw `OSError`.
 	* `write_fasta(...)` now raises a `ProtfastaException` when handed something that is neither a dictionary nor a list (it previously raised an `UnboundLocalError`) and when `linelength` cannot be interpreted as an integer (it previously raised a `TypeError`). A numerical string such as `linelength='60'` is now accepted.

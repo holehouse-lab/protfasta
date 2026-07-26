@@ -51,8 +51,27 @@ For files that are too large to fit in memory, `read_fasta_stream()` applies the
 	for header, sequence in protfasta.read_fasta_stream('huge.fasta'):
 	    ...
 
+## Running tests
+
+To run tests on your environment, clone the source code and from protfasta root 
+
+```bash
+cd protfasta/tests
+pytest --verbose
+```
+
+To run the test suite over all supported Python versions we use [tox](https://tox.wiki/en/4.58.0/);  from the protfasta source root directory simply run
+
+```bash
+tox	
+```
+
+And the tests should run across Python envs 3.9 to 3.15 (experimental).
+
+
 
 ## Errors and help
+
 For bug reports or errors please raise an issue on this github repository (see the [Issues](https://github.com/holehouse-lab/protfasta/issues) tab at the top).
 
 ## Changelog

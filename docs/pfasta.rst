@@ -69,13 +69,14 @@ Command-line options
 
             convert-all
                 Apply the standard conversion table
-                ``B->N, U->C, X->G, Z->Q, '*'->'', '-'->''``
+                ``B->N, U->C, X->G, Z->Q, '*'->'', ' '->'', '-'->''``
                 and raise an exception if any residues remain invalid
                 afterwards.
 
             convert-res
-                Same as ``convert-all`` but keeps the alignment gap
-                character ``'-'`` untouched.
+                Same as ``convert-all`` but the file is read as an
+                alignment: the gap character ``'-'`` is preserved and
+                treated as a valid residue rather than converted.
 
             convert-all-ignore
                 Same as ``convert-all`` but silently keeps any residues
@@ -151,6 +152,17 @@ of them::
 Just print length statistics, without writing a file::
 
     pfasta --print-statistics --no-outputfile input.fasta
+
+
+Exit status
+............
+
+If the input cannot be read or sanitized under the requested options (a
+duplicate record under ``--duplicate-record fail``, an invalid residue
+under ``--invalid-sequence fail``, an output path that cannot be
+created, and so on), **pfasta** prints a single ``[FATAL ERROR]`` line
+describing the problem and exits with status ``1``. No output file is
+written in that case.
 
 
 .. toctree::

@@ -12,7 +12,7 @@ protfasta
 
 
 
-## Release 0.1.23 (July 2026)
+## Release 0.1.24 (August 2026)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -75,6 +75,24 @@ And the tests should run across Python envs 3.9 to 3.15 (experimental).
 For bug reports or errors please raise an issue on this github repository (see the [Issues](https://github.com/holehouse-lab/protfasta/issues) tab at the top).
 
 ## Changelog
+
+* **0.1.24** (August 2026) - Bug fixes, and a performance and memory pass over the whole pipeline.
+	* Fixed silent data loss when a FASTA file starts with a UTF-8 byte-order mark (which Windows editors add routinely). The BOM hid the first `>` so the first record was dropped without any error. Files are now always decoded as UTF-8 (rather than whatever the platform locale happens to be) with the BOM stripped.
+	* Fixed a crash on files containing bytes that are not valid UTF-8 (e.g. a Latin-1 accent in a header), which raised an unhandled `UnicodeDecodeError`. Such bytes are now carried through and written back out unchanged, so a read/write round trip is lossless; a stray byte inside a sequence is reported as an invalid residue like any other. Error messages that quote such data are guaranteed to be printable.
+	* Fixed duplicate *record* detection in `read_fasta(...)` missing a duplicate when the same header had already appeared with a different sequence - the lookup only remembered the first sequence seen per header. `read_fasta_stream(...)` already handled this correctly, so the two disagreed on the same file. Both now key each record on a single 16-byte digest of header plus sequence, which also uses roughly a quarter of the memory of the old per-header structures under `duplicate_record_action='remove'`.
+	* `read_fasta(...)` and `read_fasta_stream(...)` no longer hash every sequence to look for duplicate records when `expect_unique_header=True` (the `read_fasta` default): unique headers already rule out duplicate records, so that pass could never find anything. `read_fasta_stream`'s memory warning no longer blames `duplicate_record_action` in that case either.
+	* Fixed the `-res` variants of `pfasta --invalid-sequence` on actual alignments. `convert-res` raised on every gapped sequence and `convert-res-remove` discarded all of them, because the CLI stripped `-` from its conversion table but still read the file as a plain (non-alignment) FASTA. They now read the file as an alignment, as documented. All the `convert-*` modes also now use protfasta's built-in conversion table, so whitespace inside a sequence is converted rather than failing.
+	* `pfasta` now reports data problems (a duplicate record, an invalid residue, an unwritable output path, ...) with a single `[FATAL ERROR]` line and exit status 1 instead of a Python traceback.
+	* `pfasta` can now also be run as `python -m protfasta.scripts.pfasta`; previously the module had no `__main__` guard, so that invocation silently did nothing.
+	* `write_fasta(...)` now validates every entry *before* opening the output file. Previously an empty sequence part-way through the data raised after the earlier records had already been written, leaving a truncated file (or a half-appended one with `append_to_fasta=True`). An output path that cannot be opened now raises a `ProtfastaException` rather than an `OSError`, from `write_fasta(...)`, `read_fasta(..., output_filename=...)` and `read_fasta_stream(..., output_filename=...)` alike.
+	* `read_fasta_stream(...)` now raises immediately, at call time, when `filename` does not exist (rather than at the first `next()`), opens the input before creating `output_filename` (so a missing input no longer leaves an empty output file behind), and resolves symlinks when checking that `output_filename` differs from `filename`.
+	* A `correction_dictionary` with an empty-string key silently corrupted every sequence (the replacement was inserted between every pair of residues), and a non-string value produced garbage. Keys must now be non-empty strings and values strings; anything else raises a `ProtfastaException` up front.
+	* A non-callable `header_parser` with `check_header_parser=False` raised a `TypeError` mid-parse; it is now rejected as a `ProtfastaException` before the file is read. A `header_parser` that raises on a real header also now surfaces as a `ProtfastaException` naming the offending header.
+	* Performance. On a 145 MB, 200,000-record file the default `read_fasta(...)` call is ~2.7x faster and the default `read_fasta_stream(...)` call is ~2.6x faster, with no change to the parser itself (which was already close to the limit for pure Python):
+		* Invalid-residue checking is ~8x faster. Every valid residue is deleted from the sequence in one C-level pass (`bytes.translate` for ASCII data), so an empty result means the sequence is clean and anything left over is the first invalid character.
+		* Residue conversion is ~2-5x faster. The converter now checks whether any convertible character is actually present before touching the sequence, and returns the input untouched when there is nothing to do; with a custom `correction_dictionary` the translation table is built once per call to `read_fasta`/`read_fasta_stream` rather than once per sequence.
+		* `write_fasta(...)` is ~1.5x faster: each record is assembled into a single string and written with one call instead of one call per line.
+	* Cleaned up the type annotations (`filename`/`output_filename` are declared as accepting path-like objects) and the code now passes `mypy` and `ruff` cleanly.
 
 * **0.1.23** (July 2026) - Bug fixes and more robust error handling.
 	* Fixed a crash when a FASTA file contained non-ASCII characters in a sequence. Duplicate detection hashes every sequence before invalid-residue handling runs, and the hashing step used an ASCII encoder, so any non-ASCII byte raised an unhandled `UnicodeEncodeError` instead of being reported (or removed/converted) as an invalid residue. This affected `read_fasta(...)` with its default options.

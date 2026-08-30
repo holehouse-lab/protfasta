@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import warnings
-from typing import Callable, Iterator, Optional, Union
+from typing import Callable, Iterable, Iterator, Optional, Union
 
 from protfasta import utilities as _utilities
 from protfasta import io as _io
@@ -59,7 +59,7 @@ def _get_data(path: str) -> str:
 
 
 def read_fasta(
-    filename: str,
+    filename: _io.PathLike,
     expect_unique_header: bool = True,
     header_parser: Optional[Callable[[str], str]] = None,
     check_header_parser: bool = True,
@@ -68,7 +68,7 @@ def read_fasta(
     invalid_sequence_action: str = 'fail',
     alignment: bool = False,
     return_list: bool = False,
-    output_filename: Optional[str] = None,
+    output_filename: Optional[_io.PathLike] = None,
     correction_dictionary: Optional[dict[str, str]] = None,
     verbose: bool = False,
 ) -> Union[dict[str, str], list[list[str]]]:
@@ -94,6 +94,13 @@ def read_fasta(
     6. A dictionary or list is returned to the caller.
 
     Incompatible option combinations are caught before the file is read.
+
+    Files are decoded as UTF-8 regardless of the platform locale.  A
+    leading byte-order mark is stripped, and bytes that are not valid
+    UTF-8 are carried through (rather than raising a decode error) so
+    that a stray byte in a sequence is reported as an invalid residue
+    like any other and a non-UTF-8 header survives a read/write round
+    trip byte-for-byte.
 
     Parameters
     ----------
@@ -175,6 +182,7 @@ def read_fasta(
         * ``*`` -> ``''``, ``-`` -> ``''``, ``' '`` -> ``''``
 
         A custom dictionary **replaces** the built-in table entirely.
+        Keys must be non-empty strings and values must be strings.
 
     verbose : bool, optional
         If ``True``, informational messages are printed to stdout
@@ -214,8 +222,16 @@ def read_fasta(
     # the actual file i/o happens here
     raw = _io.internal_parse_fasta_file(filename, expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose)
 
-    # first deal with duplicate records
-    updated = _protfasta._deal_with_duplicate_records(raw, duplicate_record_action, verbose)
+    # first deal with duplicate records. If every header is unique (which
+    # internal_parse_fasta_file has just enforced) a duplicate record - same
+    # header AND same sequence - cannot exist, so the pass would only hash
+    # every sequence to find nothing; skip it.
+    if expect_unique_header:
+        updated = raw
+        if verbose and duplicate_record_action == 'remove':
+            print('[INFO]: Removed 0 of %i due to duplicate records (headers are unique)' % (len(raw)))
+    else:
+        updated = _protfasta._deal_with_duplicate_records(raw, duplicate_record_action, verbose)
 
     # deal with duplicate sequences
     updated = _protfasta._deal_with_duplicate_sequences(updated, duplicate_sequence_action, verbose)
@@ -263,7 +279,7 @@ def read_fasta(
 # ------------------------------------------------------------------
 #
 def read_fasta_stream(
-    filename: str,
+    filename: _io.PathLike,
     expect_unique_header: bool = False,
     header_parser: Optional[Callable[[str], str]] = None,
     check_header_parser: bool = True,
@@ -272,7 +288,7 @@ def read_fasta_stream(
     invalid_sequence_action: str = 'fail',
     alignment: bool = False,
     return_list: bool = False,
-    output_filename: Optional[str] = None,
+    output_filename: Optional[_io.PathLike] = None,
     correction_dictionary: Optional[dict[str, str]] = None,
     verbose: bool = False,
     silence_warnings: bool = False,
@@ -322,7 +338,9 @@ def read_fasta_stream(
 
     * ``expect_unique_header=True`` keeps a running set of every header;
     * ``duplicate_record_action`` in ``('fail', 'remove')`` keeps a
-      running header -> sequence-digest map;
+      running set of 16-byte record digests (skipped entirely when
+      ``expect_unique_header=True``, since unique headers already rule
+      out duplicate records);
     * ``duplicate_sequence_action`` in ``('fail', 'remove')`` keeps a
       running set of sequence digests.
 
@@ -330,11 +348,14 @@ def read_fasta_stream(
     (suppress it with ``silence_warnings=True``).
 
     All argument validation is performed eagerly, at call time, so bad
-    keyword combinations raise immediately (before iteration begins).
-    Data-dependent errors -- a duplicate header, a duplicate record or
-    sequence under a ``'fail'`` action, or an invalid residue -- are
-    inherent to streaming and are therefore raised **mid-iteration**, at
-    the offending record, rather than up front.
+    keyword combinations (and a *filename* that does not exist) raise
+    immediately, before iteration begins.  Data-dependent errors -- a
+    duplicate header, a duplicate record or sequence under a ``'fail'``
+    action, or an invalid residue -- are inherent to streaming and are
+    therefore raised **mid-iteration**, at the offending record, rather
+    than up front.  The input file is opened before *output_filename* is
+    created, so a failure to open the input never leaves an empty output
+    file behind.
 
     The same processing steps as :func:`read_fasta` are applied, in the
     same order (header uniqueness, duplicate records, duplicate sequences,
@@ -368,8 +389,8 @@ def read_fasta_stream(
     duplicate_record_action : str, optional
         As in :func:`read_fasta`, but **defaults to ``'ignore'`` here** so
         that streaming is flat in memory by default.  The ``'fail'`` and
-        ``'remove'`` variants keep a running header-to-digest map
-        (``O(records)`` memory).  Default ``'ignore'``.
+        ``'remove'`` variants keep a running set of 16-byte record
+        digests (``O(records)`` memory).  Default ``'ignore'``.
 
     invalid_sequence_action : str, optional
         As in :func:`read_fasta`.  Every mode is a per-record decision
@@ -448,11 +469,19 @@ def read_fasta_stream(
                      verbose,
                      correction_dictionary)
 
+    # A missing input is an argument problem, not a data problem, so report
+    # it now rather than at the first next() call. Anything else that can go
+    # wrong at open time (a directory, permissions) is still caught, but
+    # lazily, by _open_fasta.
+    if not os.path.exists(filename):
+        raise ProtfastaException('Unable to find file: %s' % (filename))
+
     # Streaming-specific guard: reading and simultaneously overwriting the
     # same file would corrupt the input mid-stream.  read_fasta is immune
     # because it reads the whole file before writing, but streaming is not.
+    # realpath (rather than abspath) so a symlink to the input is caught too.
     if output_filename is not None:
-        if os.path.abspath(output_filename) == os.path.abspath(filename):
+        if os.path.realpath(output_filename) == os.path.realpath(filename):
             raise ProtfastaException("keyword 'output_filename' must differ from 'filename' when streaming")
 
     # Warn (once, eagerly) if a memory-growing check is enabled, so the caller
@@ -463,7 +492,9 @@ def read_fasta_stream(
         growing = []
         if expect_unique_header:
             growing.append("expect_unique_header=True")
-        if duplicate_record_action in ('fail', 'remove'):
+        elif duplicate_record_action in ('fail', 'remove'):
+            # (with unique headers a duplicate record is impossible, so the
+            # record check is skipped and costs nothing extra)
             growing.append("duplicate_record_action=%r" % duplicate_record_action)
         if duplicate_sequence_action in ('fail', 'remove'):
             growing.append("duplicate_sequence_action=%r" % duplicate_sequence_action)
@@ -496,8 +527,8 @@ def read_fasta_stream(
 #
 def write_fasta(
     fasta_data: Union[dict[str, str], list[list[str]]],
-    filename: str,
-    linelength: Union[int, bool, None] = 60,    
+    filename: _io.PathLike,
+    linelength: Union[int, bool, None] = 60,
     append_to_fasta: bool = False,
 ) -> None:
     """Write sequences to a FASTA file.
@@ -505,6 +536,12 @@ def write_fasta(
     Accepts sequence data as either a dictionary (header -> sequence) or
     a list of ``[header, sequence]`` pairs and writes a standards-
     compliant FASTA file to *filename*.
+
+    The data is validated in full **before** the file is opened, so a bad
+    entry (an empty sequence, a malformed list element) raises without
+    creating, truncating, or appending to *filename*.  Output is written
+    as UTF-8; headers that came from a non-UTF-8 file via
+    :func:`read_fasta` are written back out with their original bytes.
 
     Parameters
     ----------
@@ -537,25 +574,23 @@ def write_fasta(
     ProtfastaException
         If *fasta_data* is neither a dictionary nor a list, if a list
         element does not contain exactly two items, if *linelength* is
-        not an integer (or ``0``/``None``/``False``), or if a sequence
-        is empty.
+        not an integer (or ``0``/``None``/``False``), if a sequence is
+        empty, or if *filename* cannot be opened for writing.
     """
 
     # This part of code means we can pass either a dictionary or a list of lists
-    # in for write_fasta to deal with
-
+    # in for write_fasta to deal with. Either way, `records` iterates over
+    # (header, sequence) pairs.
+    records: Iterable[tuple[str, str]]
     if isinstance(fasta_data, dict):
-        def get_sequence():
-            return (entry, fasta_data[entry])
+        records = fasta_data.items()
 
     elif isinstance(fasta_data, list):
-        def get_sequence():
-            return (entry[0], entry[1])
-
         # quick validate
         for i in fasta_data:
-            if len(i)  != 2:
-                raise ProtfastaException('While processing a list for write_fasta_file at least one of the elements was not a 2-position sublist:\n%s'%(str(i)))
+            if len(i) != 2:
+                raise ProtfastaException('While processing a list for write_fasta_file at least one of the elements was not a 2-position sublist:\n%s' % (str(i)))
+        records = fasta_data  # type: ignore[assignment]
 
     else:
         raise ProtfastaException("keyword 'fasta_data' must be a dictionary of header:sequence pairs or a list of [header, sequence] pairs (got %s)" % (type(fasta_data).__name__))
@@ -579,42 +614,20 @@ def write_fasta(
         elif linelength < 5:
             linelength = 5
 
-    # set the 'mode' for open. If append_to_file==False, use 'w' and overwrite
-    # existing .fasta file. Otherwise use 'a' and add to existing file if it exists.
-    if append_to_fasta==False:
-        open_mode='w'
-    else:
-        open_mode='a'
+    # Validate every entry before touching the filesystem, so a bad entry
+    # never leaves a truncated file (or a half-appended one) behind.
+    for header, seq in records:
+        if len(seq) < 1:
+            raise ProtfastaException('Sequence associated with [%s] is empty' % (header))
 
-    # Use a large write buffer (1 MiB) to minimise syscall overhead when
-    # writing very large files.
-    with open(filename, open_mode, buffering=1024 * 1024) as fh:
-
-        # for each entry
-        for entry in fasta_data:
-
-            (header, seq) = get_sequence()
-            if len(seq) < 1:
-                raise ProtfastaException('Sequence associated with [%s] is empty'%(header))
-
-            # write the header line
-            fh.write('>')
-            fh.write(header)
-            fh.write('\n')
-
-            if linelength:
-                # Slice the sequence into line-length chunks and write
-                # each chunk followed by a newline.  This is O(n) with
-                # a handful of Python-level write calls, vs one write
-                # per residue in the naive implementation.
-                seq_len = len(seq)
-                for start in range(0, seq_len, linelength):
-                    fh.write(seq[start:start + linelength])
-                    fh.write('\n')
-                # Blank separator line between records.
-                fh.write('\n')
-            else:
-                # Single-line sequence output.
-                fh.write(seq)
-                fh.write('\n\n')
+    # If append_to_fasta is False the file is truncated/created; otherwise
+    # new entries are added to the end of an existing file.
+    with _io._open_output(filename, append=append_to_fasta) as fh:
+        write = fh.write
+        for header, seq in records:
+            # Each record is assembled into a single string (header line,
+            # line-length-sliced sequence, blank separator) and emitted with
+            # one write call - a handful of C-level operations per record
+            # rather than a Python-level write per line.
+            write(_io._format_record(header, seq, linelength))
     

@@ -62,12 +62,13 @@ the whole file up front:
        ``(header, sequence)`` tuples; ``return_list=True`` yields
        ``[header, sequence]`` lists. There is no dictionary return type.
     *  **When errors are raised.** All *argument* validation is eager -
-       an invalid keyword combination raises immediately, before any
-       record is produced. *Data-dependent* failures, however, are
-       inherent to streaming and are raised **mid-iteration**, at the
-       offending record: a duplicate header, a duplicate record or
-       sequence under a ``'fail'`` action, or an invalid residue under
-       ``invalid_sequence_action='fail'`` / ``'convert'``.
+       an invalid keyword combination, or a ``filename`` that does not
+       exist, raises immediately, before any record is produced.
+       *Data-dependent* failures, however, are inherent to streaming and
+       are raised **mid-iteration**, at the offending record: a duplicate
+       header, a duplicate record or sequence under a ``'fail'`` action,
+       or an invalid residue under ``invalid_sequence_action='fail'`` /
+       ``'convert'``.
     *  **verbose output.** Per-total summaries (for example, "removed 5
        of 100 duplicate records") can only be reported once the
        generator has been fully consumed, so they are emitted at
@@ -75,7 +76,11 @@ the whole file up front:
     *  **output_filename.** When provided, each sanitized record is
        teed to disk as it is yielded. The output file is therefore only
        complete once the generator has been fully consumed, and it must
-       differ from the input ``filename``.
+       differ from the input ``filename``. The input is opened before the
+       output is created, so a problem opening the input never leaves an
+       empty output file behind. The output is byte-for-byte what
+       :func:`protfasta.write_fasta` would produce with its default
+       ``linelength``.
 
 
 Memory characteristics
@@ -92,7 +97,9 @@ them adds auxiliary state that grows with the *number of records*:
 
     *  ``expect_unique_header=True`` keeps a running set of every header;
     *  ``duplicate_record_action`` set to ``'fail'`` or ``'remove'``
-       keeps a running header-to-sequence-digest map;
+       keeps a running set of 16-byte record digests. (When
+       ``expect_unique_header=True`` this check is skipped entirely,
+       since unique headers already rule out duplicate records.)
     *  ``duplicate_sequence_action`` set to ``'fail'`` or ``'remove'``
        keeps a running set of sequence digests.
 

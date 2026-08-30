@@ -33,6 +33,8 @@ BADCHAR_FILE = os.path.join(TEST_DATA_DIR, "test_data_with_bad_chars.fa")
 NONSTANDARD_FILE = os.path.join(TEST_DATA_DIR, "test_data_with_nonstandard_chars.fa")
 DUPLICATE_RECORD_FILE = os.path.join(TEST_DATA_DIR, "testset_duplicate.fasta")
 DUPLICATE_SEQ_FILE = os.path.join(TEST_DATA_DIR, "testset_duplicate_seqs.fasta")
+ALIGNED_VALID_FILE = os.path.join(TEST_DATA_DIR, "aligned_seq_all_valid.fasta")
+ALIGNED_CONVERTABLE_FILE = os.path.join(TEST_DATA_DIR, "aligned_seq_all_valid_convertable.fasta")
 
 
 def _run_main(*cli_args: str, monkeypatch) -> None:
@@ -146,6 +148,17 @@ class TestCLIMissingFile:
             _run_main("no_such_file.fasta", "--silent", monkeypatch=monkeypatch)
 
 
+class TestCLIUnwritableOutput:
+    """An output path that cannot be opened is a clean error, not a traceback."""
+
+    def test_unwritable_output_exits(self, tmp_path, monkeypatch, capsys):
+        outfile = str(tmp_path / "no_such_dir" / "out.fasta")
+        with pytest.raises(SystemExit) as exc:
+            _run_main(SIMPLE_FILE, "-o", outfile, "--silent", monkeypatch=monkeypatch)
+        assert exc.value.code != 0
+        assert "[FATAL ERROR]" in capsys.readouterr().out
+
+
 class TestCLIBasicRead:
     """Basic invocation with a valid file."""
 
@@ -188,14 +201,17 @@ class TestCLIDuplicateRecord:
         )
         assert os.path.exists(outfile)
 
-    def test_duplicate_record_fail(self, tmp_path, monkeypatch):
+    def test_duplicate_record_fail(self, tmp_path, monkeypatch, capsys):
         outfile = str(tmp_path / "out.fasta")
-        with pytest.raises(Exception):
+        with pytest.raises(SystemExit) as exc:
             _run_main(
                 DUPLICATE_RECORD_FILE, "-o", outfile,
                 "--duplicate-record", "fail", "--silent",
                 monkeypatch=monkeypatch,
             )
+        assert exc.value.code != 0
+        assert "[FATAL ERROR]" in capsys.readouterr().out
+        assert not os.path.exists(outfile)
 
     def test_duplicate_record_ignore(self, tmp_path, monkeypatch):
         outfile = str(tmp_path / "out.fasta")
@@ -219,14 +235,16 @@ class TestCLIDuplicateSequence:
         )
         assert os.path.exists(outfile)
 
-    def test_duplicate_sequence_fail(self, tmp_path, monkeypatch):
+    def test_duplicate_sequence_fail(self, tmp_path, monkeypatch, capsys):
         outfile = str(tmp_path / "out.fasta")
-        with pytest.raises(Exception):
+        with pytest.raises(SystemExit) as exc:
             _run_main(
                 DUPLICATE_SEQ_FILE, "-o", outfile,
                 "--duplicate-sequence", "fail", "--silent",
                 monkeypatch=monkeypatch,
             )
+        assert exc.value.code != 0
+        assert "[FATAL ERROR]" in capsys.readouterr().out
 
 
 class TestCLIInvalidSequence:
@@ -241,14 +259,18 @@ class TestCLIInvalidSequence:
         )
         assert os.path.exists(outfile)
 
-    def test_invalid_sequence_fail(self, tmp_path, monkeypatch):
+    def test_invalid_sequence_fail(self, tmp_path, monkeypatch, capsys):
         outfile = str(tmp_path / "out.fasta")
-        with pytest.raises(Exception):
+        with pytest.raises(SystemExit) as exc:
             _run_main(
                 NONSTANDARD_FILE, "-o", outfile,
                 "--invalid-sequence", "fail", "--silent",
                 monkeypatch=monkeypatch,
             )
+        assert exc.value.code != 0
+        out = capsys.readouterr().out
+        assert "[FATAL ERROR]" in out
+        assert "invalid amino acid" in out
 
     def test_invalid_sequence_remove(self, tmp_path, monkeypatch):
         outfile = str(tmp_path / "out.fasta")
@@ -279,6 +301,58 @@ class TestCLIInvalidSequence:
             monkeypatch=monkeypatch,
         )
         assert os.path.exists(outfile)
+
+    # The -res variants exist to handle alignments: '-' must survive as a
+    # gap character AND be treated as valid. Previously the CLI stripped
+    # '-' from its conversion table but still read the file as a plain
+    # (non-alignment) FASTA, so convert-res raised on every gapped
+    # sequence and convert-res-remove discarded all of them.
+
+    def test_convert_res_keeps_gaps_on_alignment(self, tmp_path, monkeypatch):
+        outfile = str(tmp_path / "out.fasta")
+        _run_main(
+            ALIGNED_CONVERTABLE_FILE, "-o", outfile,
+            "--invalid-sequence", "convert-res", "--silent",
+            monkeypatch=monkeypatch,
+        )
+        seqs = protfasta.read_fasta(outfile, alignment=True)
+        assert seqs["Seq1"] == "A-----CDEFGHIKLMNPQRSTVWY"
+        assert seqs["Seq2"] == "ACDEFGHIKL-----MNPQRSTVWYN"
+        assert seqs["Seq3"] == "ACDEFGHIKLMNPQRSTVWY-----Q"
+
+    def test_convert_res_remove_keeps_aligned_sequences(self, tmp_path, monkeypatch):
+        outfile = str(tmp_path / "out.fasta")
+        _run_main(
+            ALIGNED_VALID_FILE, "-o", outfile,
+            "--invalid-sequence", "convert-res-remove", "--silent",
+            monkeypatch=monkeypatch,
+        )
+        assert len(protfasta.read_fasta(outfile, alignment=True)) == 3
+
+    def test_convert_all_strips_gaps(self, tmp_path, monkeypatch):
+        outfile = str(tmp_path / "out.fasta")
+        _run_main(
+            ALIGNED_VALID_FILE, "-o", outfile,
+            "--invalid-sequence", "convert-all", "--silent",
+            monkeypatch=monkeypatch,
+        )
+        seqs = protfasta.read_fasta(outfile)
+        assert seqs["Seq1"] == "ACDEFGHIKLMNPQRSTVWY"
+        assert "-" not in "".join(seqs.values())
+
+    def test_convert_all_strips_spaces(self, tmp_path, monkeypatch):
+        # Whitespace inside a sequence is convertible via the built-in
+        # table (' ' -> ''); the old hand-rolled CLI table omitted it.
+        input_file = tmp_path / "spaces.fasta"
+        input_file.write_text(">h1\nACD EFG\n>h2\nHIK LMN\n")
+        outfile = str(tmp_path / "out.fasta")
+        _run_main(
+            str(input_file), "-o", outfile,
+            "--invalid-sequence", "convert-all", "--silent",
+            monkeypatch=monkeypatch,
+        )
+        seqs = protfasta.read_fasta(outfile)
+        assert seqs == {"h1": "ACDEFG", "h2": "HIKLMN"}
 
 
 class TestCLILengthFilters:
@@ -378,6 +452,19 @@ class TestCLIRandomSubsample:
         )
         seqs = protfasta.read_fasta(outfile)
         assert len(seqs) == 2
+
+    def test_subsample_is_a_subset_of_input(self, tmp_path, monkeypatch):
+        outfile = str(tmp_path / "out.fasta")
+        full = protfasta.read_fasta(SIMPLE_FILE)
+        _run_main(
+            SIMPLE_FILE, "-o", outfile,
+            "--random-subsample", "3", "--silent",
+            monkeypatch=monkeypatch,
+        )
+        seqs = protfasta.read_fasta(outfile)
+        assert len(seqs) == 3
+        for header, seq in seqs.items():
+            assert full[header] == seq
 
     def test_subsample_larger_than_dataset(self, tmp_path, monkeypatch):
         outfile = str(tmp_path / "out.fasta")

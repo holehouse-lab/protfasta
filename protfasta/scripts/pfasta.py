@@ -17,6 +17,7 @@ import protfasta
 import argparse
 from argparse import RawTextHelpFormatter
 from protfasta import __version__ as VERSION_MAJ
+from protfasta.protfasta_exceptions import ProtfastaException
 
 
 ## ===================================================================================================
@@ -50,7 +51,7 @@ def exit_error(msg: str) -> None:
         Error description shown to the user.
     """
     print('[FATAL ERROR]: %s' % (msg))
-    exit(1)
+    sys.exit(1)
 
 ####################################################################################################
 #
@@ -102,7 +103,7 @@ def validate_int(val: str, min_val: int, param_name: str) -> int:
         if val_i < min_val:
             raise Exception
     except Exception:
-        exit_error('%s must be a numerical value > %i'%(param_name, min_val))
+        exit_error('%s must be a numerical value >= %i' % (param_name, min_val))
 
     return val_i
 
@@ -160,7 +161,7 @@ def main() -> None:
     parser.add_argument("--non-unique-header", help="", action='store_true') 
     parser.add_argument("--duplicate-record", help="How to deal with duplicate records in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = fail)") 
     parser.add_argument("--duplicate-sequence", help="How to deal with duplicate sequences in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = ignore)") 
-    parser.add_argument("--invalid-sequence", help="How to deal with invalid (non-standard) residues in the file. Available options\nare shown below and described (default = fail)\n\nignore : skip invalid residues \nfail   : throw exception on invalid sequences \nremove : remove sequences with invalid characters \nconvert-all : Convert B->N, U->C, X->G, Z->Q, '*'->'',\n             '-'->'' (and throw exception if remaining invalid characters exist)\nconvert-res : same as convert-all except ignore alignment character '-'\nconvert-all-ignore - same as convert-all except invalid characters left over are ignored.\nconvert-res-ignore - same as convert-res except invalid characters left over are ignored.   \nconvert-all-remove - same as convert-all except sequences with invalid characters are removed.\nconvert-res-remove - same as convert-res except sequences with invalid characters are removed.   ")  
+    parser.add_argument("--invalid-sequence", help="How to deal with invalid (non-standard) residues in the file. Available options\nare shown below and described (default = fail)\n\nignore : skip invalid residues \nfail   : throw exception on invalid sequences \nremove : remove sequences with invalid characters \nconvert-all : Convert B->N, U->C, X->G, Z->Q, '*'->'', ' '->'',\n             '-'->'' (and throw exception if remaining invalid characters exist)\nconvert-res : same as convert-all except the alignment gap character '-' is\n             preserved and treated as valid (i.e. the file is read as an alignment)\nconvert-all-ignore - same as convert-all except invalid characters left over are ignored.\nconvert-res-ignore - same as convert-res except invalid characters left over are ignored.   \nconvert-all-remove - same as convert-all except sequences with invalid characters are removed.\nconvert-res-remove - same as convert-res except sequences with invalid characters are removed.   ")
     parser.add_argument("--number-lines", help="Number of residues per line in the output FASTA file (default = 60)")
     parser.add_argument("--shortest-seq", help="Minimum length filter; sequences shorter than or equal to this length are discarded")
     parser.add_argument("--longest-seq", help="Maximum length filter; sequences longer than or equal to this length are discarded")
@@ -220,6 +221,12 @@ def main() -> None:
     else:
         duplicate_sequence = 'ignore'
 
+    # The -all and -res variants both use protfasta's built-in conversion
+    # table; they differ only in whether the file is read as an alignment.
+    # convert-all: '-' is stripped along with the other convertible
+    # characters. convert-res: '-' is preserved as a gap character and
+    # treated as valid, which is what alignment=True does.
+    alignment = False
     if args.invalid_sequence:
         invalid_sequence = validate(args.invalid_sequence, ['ignore',
                                                             'fail',
@@ -231,66 +238,13 @@ def main() -> None:
                                                             'convert-all-remove',
                                                             'convert-res-remove'])
 
+        if invalid_sequence.startswith('convert-'):
+            (_, scope, *suffix) = invalid_sequence.split('-')
+            alignment = (scope == 'res')
+            invalid_sequence = '-'.join(['convert'] + suffix)
 
-        if invalid_sequence == 'convert-all':
-            invalid_sequence = 'convert'
-            correction_dict = {'B':'N',
-                               'U':'C',
-                               'X':'G',
-                               'Z':'Q',
-                               '*':'',
-                               '-':''}
-
-        elif invalid_sequence == 'convert-res':
-            invalid_sequence = 'convert'
-            correction_dict = {'B':'N',
-                               'U':'C',
-                               'X':'G',
-                               'Z':'Q',
-                               '*':''}
-
-        elif invalid_sequence == 'convert-all-ignore':
-            invalid_sequence = 'convert-ignore'
-            correction_dict = {'B':'N',
-                               'U':'C',
-                               'X':'G',
-                               'Z':'Q',
-                               '*':'',
-                               '-':''}
-
-        elif invalid_sequence == 'convert-res-ignore':
-            invalid_sequence = 'convert-ignore'
-            correction_dict = {'B':'N',
-                               'U':'C',
-                               'X':'G',
-                               'Z':'Q',
-                               '*':''}
-
-        elif invalid_sequence == 'convert-all-remove':
-            invalid_sequence = 'convert-remove'
-            correction_dict = {'B':'N',
-                               'U':'C',
-                               'X':'G',
-                               'Z':'Q',
-                               '*':'',
-                               '-':''}
-
-        elif invalid_sequence == 'convert-res-remove':
-            invalid_sequence = 'convert-remove'
-            correction_dict = {'B':'N',
-                               'U':'C',
-                               'X':'G',
-                               'Z':'Q',
-                               '*':''}
-
-        else:
-            correction_dict = None
-            
-
-            
     else:
         invalid_sequence = 'fail'
-        correction_dict = None
 
     if args.number_lines:
         number_of_lines = validate_int(args.number_lines, 5, '--number-lines')
@@ -343,15 +297,20 @@ def main() -> None:
     # return_list=True is passed below, so the return value is always a list of
     # [header, sequence] pairs -- cast so the length/subsample filters that
     # follow are type-checkable.
-    data: list[list[str]] = cast(list, protfasta.read_fasta(args.filename,
-                                expect_unique_header=expect_unique_header,
-                                header_parser=hp,
-                                duplicate_sequence_action=duplicate_sequence,
-                                duplicate_record_action=duplicate_record,
-                                invalid_sequence_action=invalid_sequence,
-                                correction_dictionary = correction_dict,
-                                return_list=True,
-                                verbose=verb))
+    try:
+        data: list[list[str]] = cast(list, protfasta.read_fasta(args.filename,
+                                    expect_unique_header=expect_unique_header,
+                                    header_parser=hp,
+                                    duplicate_sequence_action=duplicate_sequence,
+                                    duplicate_record_action=duplicate_record,
+                                    invalid_sequence_action=invalid_sequence,
+                                    alignment=alignment,
+                                    return_list=True,
+                                    verbose=verb))
+    except ProtfastaException as e:
+        # a data problem in the input is a normal failure mode for a
+        # command-line tool, so report it cleanly rather than with a traceback
+        exit_error(str(e))
 
 
 
@@ -382,13 +341,7 @@ def main() -> None:
             stdout('[INFO]: Cannot subsample as the requested number to subsample (%i) is more than\n        the total number of sequences (%i). Using all sequences'%(random_subsample, len(data)), silent)
         else:
             stdout('[INFO]: Subsampling %i sequences from the complete dataset (%i)'%(random_subsample, len(data)), silent)
-        tmp = []
-        x = list(range(0,len(data)))
-        random.shuffle(x)
-        idx = x[0:random_subsample]
-        for position in idx:
-            tmp.append(data[position])
-        data = tmp
+        data = random.sample(data, min(random_subsample, len(data)))
 
 
 
@@ -399,9 +352,16 @@ def main() -> None:
         stdout('[INFO]: No outputfile requested ',silent)
     else:
         stdout('[INFO]: Writing new sequence file [%s]...'%(outfile),silent)
-        protfasta.write_fasta(data, outfile, linelength=number_of_lines)
+        try:
+            protfasta.write_fasta(data, outfile, linelength=number_of_lines)
+        except ProtfastaException as e:
+            exit_error(str(e))
 
         
                    
             
 
+
+
+if __name__ == "__main__":
+    main()

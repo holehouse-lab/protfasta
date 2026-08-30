@@ -40,15 +40,28 @@ lower-level error escape, so a single ``except`` clause is enough:
     *  ``linelength`` cannot be interpreted as an integer. Note that a
        numerical string (``'60'``) *is* accepted and cast.
     *  A sequence is empty - empty records are never silently written.
+    *  ``filename`` cannot be opened for writing (for example, its
+       directory does not exist).
+
+All of the data checks run **before** the file is opened, so a bad entry
+never leaves a truncated file behind and never partially appends to an
+existing one.
+
+
+Encoding
+.........
+
+Output is written as UTF-8. Headers that came from a non-UTF-8 file via
+:func:`protfasta.read_fasta` (see its Encoding section) are written back
+out with their original bytes, so a read/write round trip is lossless.
 
 
 Performance notes
 ..................
 
-``write_fasta`` writes output in line-length chunks with a 1 MiB write
-buffer, which makes it suitable for very large outputs (tens of
-millions of sequences and beyond). An empty sequence raises a
-``ProtfastaException`` rather than being silently written out.
+``write_fasta`` assembles each record into a single string and emits it
+with one write call into a 1 MiB buffer, which makes it suitable for
+very large outputs (tens of millions of sequences and beyond).
 
 
 For usage examples see the :doc:`examples` page.

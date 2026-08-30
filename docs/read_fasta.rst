@@ -62,17 +62,39 @@ read.
 
 Both ``filename`` and ``output_filename`` accept either a string or a
 :class:`pathlib.Path`. Anything that goes wrong - a bad keyword, a
-missing or unreadable file, an invalid residue under
-``invalid_sequence_action='fail'`` - is raised as a
+missing or unreadable file, an output file that cannot be created, an
+invalid residue under ``invalid_sequence_action='fail'``, a
+``header_parser`` that raises on a real header - is raised as a
 ``ProtfastaException``, so callers only need to catch one exception
 type.
+
+
+Encoding
+.........
+
+Files are always decoded as UTF-8, regardless of the platform locale
+(so behaviour is identical on Linux, macOS and Windows), and written
+back out as UTF-8. Two details make this robust to real-world files:
+
+    *  A leading byte-order mark (which some Windows editors add) is
+       stripped. Without this the BOM would hide the first ``>`` and the
+       first record would silently vanish.
+    *  Bytes that are not valid UTF-8 (a Latin-1 accented character in a
+       header, say) do not raise a decode error. They are carried through
+       and written back out as the original bytes, so a read/write round
+       trip is lossless. A stray byte inside a *sequence* simply shows up
+       as an invalid residue and is handled by ``invalid_sequence_action``
+       like any other.
 
 
 Default conversion table
 ..........................
 
 When ``invalid_sequence_action`` includes conversion and no custom
-``correction_dictionary`` is supplied, these replacements are applied:
+``correction_dictionary`` is supplied, these replacements are applied
+(a custom dictionary replaces this table entirely; its keys must be
+non-empty strings and its values strings, and multi-character keys are
+allowed):
 
     *  ``B`` -> ``N``
     *  ``U`` -> ``C``

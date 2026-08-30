@@ -2,7 +2,7 @@
 protfasta - A simple but robust FASTA parser explicitly for protein sequences.
 
 This module handles FASTA file I/O and validation of input arguments passed
-to the public ``read_fasta`` API.
+to the public ``read_fasta`` / ``read_fasta_stream`` API.
 
 .............................................................................
 protfasta was developed by the Holehouse lab
@@ -20,13 +20,46 @@ Be kind to each other.
 from __future__ import annotations
 
 import os
-from typing import Callable, Iterator, Optional, Union
+from typing import IO, Callable, Iterable, Iterator, Optional, Union
 
 from . import utilities as _utilities
 from .protfasta_exceptions import ProtfastaException
 
 
-def check_filename(filename) -> None:
+# ---------------------------------------------------------------------------
+# Encoding policy
+#
+# FASTA files are read as UTF-8 and written as UTF-8, independent of the
+# platform locale (which is what Python's open() would otherwise use, and
+# which on Windows is typically not UTF-8). Two refinements:
+#
+#   * Reading uses 'utf-8-sig', which strips a leading byte-order mark if
+#     one is present and is otherwise identical to 'utf-8'. Without this a
+#     BOM (which Windows editors add routinely) hides the first '>' and
+#     silently drops the first record.
+#
+#   * Both directions use the 'surrogateescape' error handler, so bytes
+#     that are not valid UTF-8 (a Latin-1 accent in a header, say) are
+#     carried through as lone surrogate code points rather than raising a
+#     UnicodeDecodeError, and are written back out as the original bytes.
+#     A stray byte inside a *sequence* therefore surfaces as an invalid
+#     residue and is handled by invalid_sequence_action like any other.
+# ---------------------------------------------------------------------------
+_READ_ENCODING = 'utf-8-sig'
+_WRITE_ENCODING = 'utf-8'
+_ENCODING_ERRORS = 'surrogateescape'
+
+# Large write buffer (1 MiB) to minimise syscall overhead on big outputs.
+_WRITE_BUFFER = 1024 * 1024
+
+# Type alias for anything we accept as a path.
+PathLike = Union[str, 'os.PathLike[str]']
+
+
+####################################################################################################
+#
+#
+def check_filename(filename: object) -> None:
     """Validate that *filename* is something we can safely open.
 
     ``open()`` happily accepts an integer and interprets it as an already-open
@@ -49,13 +82,17 @@ def check_filename(filename) -> None:
         raise ProtfastaException("keyword 'filename' must be a string or path-like object (got %s)" % (type(filename).__name__))
 
 
-def _open_fasta(filename):
+####################################################################################################
+#
+#
+def _open_fasta(filename: PathLike) -> IO[str]:
     """Open a FASTA file for reading, converting OS errors into protfasta errors.
 
     Every failure mode of :func:`open` -- a missing file, a directory passed
     in place of a file, a permissions problem -- is surfaced as a
     :class:`~protfasta.protfasta_exceptions.ProtfastaException` so that
-    callers only ever need to catch one exception type.
+    callers only ever need to catch one exception type.  See the encoding
+    policy at the top of this module for how the file is decoded.
 
     Parameters
     ----------
@@ -73,13 +110,47 @@ def _open_fasta(filename):
         If the file cannot be opened for any reason.
     """
     try:
-        return open(filename, 'r')
+        return open(filename, 'r', encoding=_READ_ENCODING, errors=_ENCODING_ERRORS)
     except FileNotFoundError:
         raise ProtfastaException('Unable to find file: %s' % (filename))
     except OSError as e:
         raise ProtfastaException('Unable to read file: %s\nException: %s' % (filename, e))
 
 
+####################################################################################################
+#
+#
+def _open_output(filename: PathLike, append: bool = False) -> IO[str]:
+    """Open a FASTA file for writing, converting OS errors into protfasta errors.
+
+    Parameters
+    ----------
+    filename : str or os.PathLike
+        Destination path.
+
+    append : bool, optional
+        If ``True`` open in append mode, otherwise truncate/create.
+        Default ``False``.
+
+    Returns
+    -------
+    file object
+        An open, writeable text file handle with a 1 MiB buffer.
+
+    Raises
+    ------
+    ProtfastaException
+        If the file cannot be opened (missing directory, permissions, ...).
+    """
+    try:
+        return open(filename, 'a' if append else 'w', buffering=_WRITE_BUFFER, encoding=_WRITE_ENCODING, errors=_ENCODING_ERRORS)
+    except OSError as e:
+        raise ProtfastaException('Unable to open file for writing: %s\nException: %s' % (filename, e))
+
+
+####################################################################################################
+#
+#
 def check_inputs(
     expect_unique_header: bool,
     header_parser: Optional[Callable[[str], str]],
@@ -89,7 +160,7 @@ def check_inputs(
     invalid_sequence_action: str,
     alignment: bool,
     return_list: bool,
-    output_filename: Optional[str],
+    output_filename: Optional[PathLike],
     verbose: bool,
     correction_dictionary: Optional[dict[str, str]],
 ) -> None:
@@ -111,7 +182,7 @@ def check_inputs(
     header_parser : callable or None
         A user-supplied function that accepts a single header string and
         returns a transformed header string.  ``None`` means no custom
-        parsing.
+        parsing.  Must be callable whenever it is not ``None``.
 
     check_header_parser : bool
         When ``True``, ``header_parser`` is tested with a dummy string
@@ -147,7 +218,8 @@ def check_inputs(
     correction_dictionary : dict or None
         Optional mapping of non-standard characters to their
         replacements (e.g. ``{'B': 'N'}``).  Overrides the built-in
-        conversion table when provided.
+        conversion table when provided.  Keys must be non-empty strings
+        and values must be strings.
 
     Raises
     ------
@@ -156,39 +228,43 @@ def check_inputs(
     """
 
     # check the expect_unique_header keyword
-    if type(expect_unique_header) != bool:
+    if not isinstance(expect_unique_header, bool):
         raise ProtfastaException("keyword 'expect_unique_header' must be a boolean")
 
-    # validate the header_parser
-    if check_header_parser:
-        if header_parser is not None:
-            if not callable(header_parser):
-                raise ProtfastaException("keyword 'header_parser' must be a function [tested with callable()]")
-            
+    if not isinstance(check_header_parser, bool):
+        raise ProtfastaException("keyword 'check_header_parser' must be a boolean")
+
+    # validate the header_parser. Note the callable() check applies whether
+    # or not check_header_parser is set - that flag only controls the smoke
+    # test with a dummy string, and a non-callable can never work
+    if header_parser is not None:
+        if not callable(header_parser):
+            raise ProtfastaException("keyword 'header_parser' must be a function [tested with callable()]")
+
+        if check_header_parser:
+            tst_string = 'this test string should work'
             try:
-                tst_string = 'this test string should work'
                 a = header_parser(tst_string)
-                if type(a) != str:
-                    raise ProtfastaException('Something went wrong when testing the header_parser function.\nFunction completed but return value was not a string')
             except Exception as e:
                 raise ProtfastaException(f'Something went wrong when testing the header_parser function using string: {tst_string}.\nMaybe you should set check_header_parser to False? \nException: {e}')
-            
+
+            if not isinstance(a, str):
+                raise ProtfastaException('Something went wrong when testing the header_parser function.\nFunction completed but return value was not a string (got %s)' % (type(a).__name__))
 
     # check the duplicate_record_action
-    if duplicate_record_action not in ['ignore','fail','remove']:
+    if duplicate_record_action not in ['ignore', 'fail', 'remove']:
         raise ProtfastaException("keyword 'duplicate_record_action' must be one of 'ignore','fail','remove'")
 
     # check the duplicate_sequence_action
-    if duplicate_sequence_action not in ['ignore','fail','remove']:
+    if duplicate_sequence_action not in ['ignore', 'fail', 'remove']:
         raise ProtfastaException("keyword 'duplicate_sequence_action' must be one of 'ignore','fail', 'remove'")
 
-
     # check the invalid_sequence_action
-    if invalid_sequence_action not in ['ignore','fail','remove','convert','convert-ignore', 'convert-remove']:
+    if invalid_sequence_action not in ['ignore', 'fail', 'remove', 'convert', 'convert-ignore', 'convert-remove']:
         raise ProtfastaException("keyword 'invalid_sequence_action' must be one of 'ignore','fail','remove','convert','convert-ignore', 'convert-remove'")
 
     # check the return_list
-    if type(return_list) != bool:
+    if not isinstance(return_list, bool):
         raise ProtfastaException("keyword 'return_list' must be a boolean")
 
     # check the output_filename
@@ -197,117 +273,130 @@ def check_inputs(
             raise ProtfastaException("keyword 'output_filename' must be a string or path-like object")
 
     # check verbose
-    if type(verbose) != bool:
+    if not isinstance(verbose, bool):
         raise ProtfastaException("keyword 'verbose' must be a boolean")
 
-    if type(alignment) != bool:
+    if not isinstance(alignment, bool):
         raise ProtfastaException("keyword 'alignment' must be a boolean")
-        
+
     if duplicate_record_action == 'ignore':
         if expect_unique_header is True:
             raise ProtfastaException('Cannot expect unique headers and ignore duplicate records')
-            
+
     # checks correction dictionary
     if correction_dictionary is not None:
-        if type(correction_dictionary) != dict:
+        if not isinstance(correction_dictionary, dict):
             raise ProtfastaException("If provided, keyword 'correction_dictionary' must be a dictionary")
-
-
-
+        _utilities._validate_correction_dictionary(correction_dictionary)
 
 
 ####################################################################################################
 #
 #
-def internal_parse_fasta_file(
-    filename: str,
-    expect_unique_header: bool = True,
+def _iter_fasta_lines(
+    content: Iterable[str],
     header_parser: Optional[Callable[[str], str]] = None,
-    verbose: bool = False,
-) -> list[list[str]]:
-    """Low-level FASTA file parser.
+) -> Iterator[tuple[str, str]]:
+    """Core FASTA parsing engine: turn an iterable of lines into records.
 
-    Reads a FASTA file from disk and returns its contents as a list of
-    ``[header, sequence]`` pairs.  Header lines must begin with ``">"``
-    and occupy a single line; sequence data may span multiple lines.
+    This is the single parser behind everything in protfasta -- both the
+    load-it-all path (:func:`_parse_fasta_all`) and the streaming path
+    (:func:`_stream_fasta`) consume it, so the two can never disagree on
+    what constitutes a record.
 
-    This is an internal helper -- most callers should use
-    :func:`protfasta.read_fasta` instead.
+    It accepts any iterable of lines -- typically an open text-mode file
+    handle (consumed lazily, so peak memory is one record) or a
+    pre-loaded ``list[str]`` for testing.  Each element is expected to
+    be one line, optionally newline-terminated.  Header lines begin with
+    ``">"`` and occupy a single line; sequence data may span multiple
+    lines.  Trailing whitespace is stripped from every line, blank lines
+    are skipped, and anything before the first header is ignored.
+
+    A header that is not followed by any sequence data is silently
+    skipped, matching the behaviour protfasta has always had.
 
     Parameters
     ----------
-    filename : str
-        Absolute or relative path to a FASTA file.
-
-    expect_unique_header : bool, optional
-        If ``True`` (the default), a
-        :class:`~protfasta.protfasta_exceptions.ProtfastaException` is
-        raised when a duplicate header is encountered.
+    content : Iterable[str]
+        Iterable yielding the lines of a FASTA file.
 
     header_parser : callable or None, optional
-        A function that accepts a raw header string and returns a
-        (possibly transformed) header string.  ``None`` means headers
-        are used as-is (minus the leading ``">"``).  The function must
-        accept exactly one ``str`` argument and return a ``str``.
+        A function ``(str) -> str`` applied to every raw header (with the
+        leading ``">"`` already removed).  ``None`` means headers are used
+        verbatim.
 
-    verbose : bool, optional
-        If ``True``, informational messages are printed to stdout
-        during parsing.
-
-    Returns
-    -------
-    list[list[str]]
-        A list of two-element lists ``[header, sequence]`` in the order
-        they appear in the file.  Sequences are upper-cased.
+    Yields
+    ------
+    tuple[str, str]
+        ``(header, sequence)`` pairs in file order.  Sequences are
+        upper-cased and concatenated from any multi-line runs.
 
     Raises
     ------
     ProtfastaException
-        If the file cannot be found or a duplicate header is detected
-        (when *expect_unique_header* is ``True``).
+        If *header_parser* raises on a header encountered in the file.
     """
-        
-    # Stream the file line-by-line rather than materializing the whole
-    # file with readlines().  This keeps peak memory to O(single record)
-    # which is essential for multi-gigabyte FASTA files.
-    fh = _open_fasta(filename)
 
-    if verbose:
-        print('[INFO]: Read in file %s (streaming)' % (filename))
+    # Accumulate sequence lines into a list and join once per record;
+    # this is O(n) per sequence instead of the O(n^2) that repeated
+    # string concatenation can degenerate into.
+    seq_parts: list[str] = []
+    header: Optional[str] = None
 
-    with fh:
-        return _parse_fasta_all(
-            fh,
-            expect_unique_header=expect_unique_header,
-            header_parser=header_parser,
-            verbose=verbose,
-        )
+    for line in content:
+
+        # rstrip() handles \n, \r, and any trailing whitespace in one
+        # C-level pass.  This is cheaper than a full strip() and a
+        # subsequent test, since most FASTA lines have no leading WS.
+        line = line.rstrip()
+
+        if not line:
+            continue
+
+        if line[0] == '>':
+            # Flush the previous record, but only if we accumulated at
+            # least one sequence line.
+            if header is not None and seq_parts:
+                yield (header, ''.join(seq_parts).upper())
+
+            # Start the new record.
+            h = line[1:]
+            if header_parser is not None:
+                try:
+                    h = header_parser(h)
+                except Exception as e:
+                    raise ProtfastaException('header_parser raised an exception on header [%s]\nException: %s' % (_utilities._printable(h), e))
+            header = h
+            seq_parts = []
+        else:
+            seq_parts.append(line)
+
+    # Flush the final record.
+    if header is not None and seq_parts:
+        yield (header, ''.join(seq_parts).upper())
 
 
 ####################################################################################################
 #
 #
 def _parse_fasta_all(
-    content,
+    content: Iterable[str],
     expect_unique_header: bool = True,
     header_parser: Optional[Callable[[str], str]] = None,
     verbose: bool = False,
 ) -> list[list[str]]:
-    """Parse FASTA content into ``[header, sequence]`` pairs.
+    """Parse FASTA content into a list of ``[header, sequence]`` pairs.
 
-    This is the core parsing engine used by
-    :func:`internal_parse_fasta_file`.  It accepts any iterable of
-    lines -- typically an open file handle (streamed, preferred for
-    large files) or a pre-loaded ``list[str]`` -- making it easy to
-    test in isolation.
+    A thin wrapper over :func:`_iter_fasta_lines` that materialises every
+    record and, when asked, checks header uniqueness as it goes.  Used by
+    :func:`internal_parse_fasta_file`; also handy for tests since it
+    accepts a plain list of lines.
 
     Parameters
     ----------
     content : Iterable[str]
-        Iterable yielding lines from a FASTA file.  Each element is
-        expected to be a single line, optionally terminated by a
-        newline character.  An open file handle is accepted and will
-        be consumed lazily.
+        Iterable yielding lines from a FASTA file (see
+        :func:`_iter_fasta_lines`).
 
     expect_unique_header : bool, optional
         If ``True`` (the default), a
@@ -326,9 +415,7 @@ def _parse_fasta_all(
     Returns
     -------
     list[list[str]]
-        A list of two-element lists ``[header, sequence]``.  Sequences
-        are upper-cased and concatenated from any multi-line runs in the
-        input.
+        A list of two-element lists ``[header, sequence]``.
 
     Raises
     ------
@@ -339,55 +426,17 @@ def _parse_fasta_all(
 
     return_data: list[list[str]] = []
 
-    # Only allocate a header-tracking set when we actually need it.
-    # Using a set (not a dict-with-True-values) saves memory; skipping
-    # it entirely when expect_unique_header is False saves even more
-    # on files with hundreds of millions of records.
+    # Only allocate a header-tracking set when we actually need it; the set
+    # holds references to the header strings already in return_data, so it
+    # costs one pointer-sized slot per record rather than a copy.
     seen_headers: Optional[set[str]] = set() if expect_unique_header else None
 
-    # Accumulate sequence lines into a list and join once per record;
-    # this is O(n) per sequence instead of the O(n^2) that repeated
-    # string concatenation can degenerate into.
-    seq_parts: list[str] = []
-    header = ''
-    have_record = False
-
-    for line in content:
-
-        # rstrip() handles \n, \r, and any trailing whitespace in one
-        # C-level pass.  This is cheaper than a full strip() and a
-        # subsequent test, since most FASTA lines have no leading WS.
-        line = line.rstrip()
-
-        if not line:
-            continue
-
-        if line[0] == '>':
-            # Flush the previous record, but only if we accumulated at
-            # least one sequence line (matching the original behaviour
-            # of silently skipping headers with no sequence).
-            if have_record and seq_parts:
-                if seen_headers is not None:
-                    if header in seen_headers:
-                        raise ProtfastaException('Found duplicate header (%s)' % (header))
-                    seen_headers.add(header)
-                return_data.append([header, ''.join(seq_parts).upper()])
-
-            # Start the new record.
-            h = line[1:]
-            header = header_parser(h) if header_parser else h
-            seq_parts = []
-            have_record = True
-        else:
-            seq_parts.append(line)
-
-    # Flush the final record if the file didn't end with a blank line.
-    if have_record and seq_parts:
+    for header, seq in _iter_fasta_lines(content, header_parser):
         if seen_headers is not None:
             if header in seen_headers:
-                raise ProtfastaException('Found duplicate header (%s)' % (header))
+                raise ProtfastaException('Found duplicate header (%s)' % (_utilities._printable(header)))
             seen_headers.add(header)
-        return_data.append([header, ''.join(seq_parts).upper()])
+        return_data.append([header, seq])
 
     if verbose:
         print('[INFO]: Parsed file to recover %i sequences' % (len(return_data)))
@@ -395,30 +444,87 @@ def _parse_fasta_all(
     return return_data
 
 
+####################################################################################################
+#
+#
+def internal_parse_fasta_file(
+    filename: PathLike,
+    expect_unique_header: bool = True,
+    header_parser: Optional[Callable[[str], str]] = None,
+    verbose: bool = False,
+) -> list[list[str]]:
+    """Low-level FASTA file parser.
+
+    Reads a FASTA file from disk and returns its contents as a list of
+    ``[header, sequence]`` pairs.  The file is streamed line-by-line
+    rather than read into memory in one go, so peak memory is the parsed
+    result plus one record, not the parsed result plus the raw file.
+
+    This is an internal helper -- most callers should use
+    :func:`protfasta.read_fasta` instead.
+
+    Parameters
+    ----------
+    filename : str or os.PathLike
+        Absolute or relative path to a FASTA file.
+
+    expect_unique_header : bool, optional
+        If ``True`` (the default), a
+        :class:`~protfasta.protfasta_exceptions.ProtfastaException` is
+        raised when a duplicate header is encountered.
+
+    header_parser : callable or None, optional
+        A function that accepts a raw header string and returns a
+        (possibly transformed) header string.  ``None`` means headers
+        are used as-is (minus the leading ``">"``).
+
+    verbose : bool, optional
+        If ``True``, informational messages are printed to stdout
+        during parsing.
+
+    Returns
+    -------
+    list[list[str]]
+        A list of two-element lists ``[header, sequence]`` in the order
+        they appear in the file.  Sequences are upper-cased.
+
+    Raises
+    ------
+    ProtfastaException
+        If the file cannot be opened or a duplicate header is detected
+        (when *expect_unique_header* is ``True``).
+    """
+
+    fh = _open_fasta(filename)
+
+    if verbose:
+        print('[INFO]: Read in file %s (streaming)' % (filename))
+
+    with fh:
+        return _parse_fasta_all(fh,
+                                expect_unique_header=expect_unique_header,
+                                header_parser=header_parser,
+                                verbose=verbose)
+
 
 ####################################################################################################
 #
 #
 def _iter_fasta(
-    filename: str,
+    filename: PathLike,
     header_parser: Optional[Callable[[str], str]] = None,
-):
+) -> Iterator[tuple[str, str]]:
     """Yield raw ``(header, sequence)`` pairs from a FASTA file, streaming.
 
-    Low-level streaming parse loop used internally by
-    :func:`_stream_fasta` (and therefore by
-    :func:`protfasta.read_fasta_stream`).  It keeps peak memory to
-    ``O(single record)`` by reading the file line-by-line and joining
-    each record's sequence lines once.
-
-    No duplicate detection, invalid-residue handling, or alignment-gap
-    logic is performed -- each record is yielded exactly as parsed.  The
-    public streaming entry point, :func:`protfasta.read_fasta_stream`,
-    layers that sanitization on top.
+    A convenience wrapper that opens *filename* and hands it to
+    :func:`_iter_fasta_lines`.  No duplicate detection, invalid-residue
+    handling, or alignment-gap logic is performed -- each record is
+    yielded exactly as parsed.  The public streaming entry point,
+    :func:`protfasta.read_fasta_stream`, layers that sanitization on top.
 
     Parameters
     ----------
-    filename : str
+    filename : str or os.PathLike
         Path to a FASTA file.
 
     header_parser : callable or None, optional
@@ -435,83 +541,53 @@ def _iter_fasta(
     ProtfastaException
         If the file cannot be opened.
     """
-    fh = _open_fasta(filename)
-
-    seq_parts: list[str] = []
-    header = ''
-    have_record = False
-
-    try:
-        for line in fh:
-            line = line.rstrip()
-            if not line:
-                continue
-
-            if line[0] == '>':
-                if have_record and seq_parts:
-                    yield (header, ''.join(seq_parts).upper())
-                h = line[1:]
-                header = header_parser(h) if header_parser else h
-                seq_parts = []
-                have_record = True
-            else:
-                seq_parts.append(line)
-
-        if have_record and seq_parts:
-            yield (header, ''.join(seq_parts).upper())
-    finally:
-        fh.close()
+    with _open_fasta(filename) as fh:
+        yield from _iter_fasta_lines(fh, header_parser)
 
 
 ####################################################################################################
 #
 #
-def _write_stream_record(fh, header: str, seq: str, linelength: int = 60) -> None:
-    """Write a single ``[header, sequence]`` record to an open file handle.
+def _format_record(header: str, seq: str, linelength: int = 60) -> str:
+    """Render one FASTA record as text.
 
-    Used by :func:`_stream_fasta` to tee sanitized records to
-    *output_filename* as they are produced.  Formatting matches
-    :func:`protfasta.write_fasta` with its default ``linelength`` of 60
-    residues per line and a blank separator line between records.
+    Shared by :func:`protfasta.write_fasta` and the streaming tee in
+    :func:`_stream_fasta`, so the two always produce byte-identical
+    output.  The sequence is sliced into *linelength* chunks and the
+    whole record (header line, sequence lines, blank separator line) is
+    assembled with a single ``str.join`` so the caller can emit it with
+    one ``write`` call.
 
     Parameters
     ----------
-    fh : file object
-        An open, writeable text file handle.
-
     header : str
-        The record header (written without the leading ``">"``, which is
-        added here).
+        The record header (the leading ``">"`` is added here).
 
     seq : str
-        The amino-acid sequence.  Must be non-empty.
+        The amino-acid sequence.
 
     linelength : int, optional
-        Number of residues per output line.  Default ``60``.
+        Number of residues per output line.  Any falsy value (``0``,
+        ``None``, ``False``) writes the sequence on a single line.
+        Default ``60``.
 
-    Raises
-    ------
-    ProtfastaException
-        If *seq* is empty (mirrors :func:`protfasta.write_fasta`).
+    Returns
+    -------
+    str
+        The formatted record, ending in a blank line.
     """
-    if len(seq) < 1:
-        raise ProtfastaException('Sequence associated with [%s] is empty' % (header))
-
-    fh.write('>')
-    fh.write(header)
-    fh.write('\n')
-    for start in range(0, len(seq), linelength):
-        fh.write(seq[start:start + linelength])
-        fh.write('\n')
-    # Blank separator line between records.
-    fh.write('\n')
+    if linelength:
+        body = '\n'.join([seq[start:start + linelength] for start in range(0, len(seq), linelength)])
+    else:
+        body = seq
+    return '>%s\n%s\n\n' % (header, body)
 
 
 ####################################################################################################
 #
 #
 def _stream_fasta(
-    filename: str,
+    filename: PathLike,
     expect_unique_header: bool = True,
     header_parser: Optional[Callable[[str], str]] = None,
     duplicate_sequence_action: str = 'ignore',
@@ -519,7 +595,7 @@ def _stream_fasta(
     invalid_sequence_action: str = 'fail',
     alignment: bool = False,
     return_list: bool = False,
-    output_filename: Optional[str] = None,
+    output_filename: Optional[PathLike] = None,
     correction_dictionary: Optional[dict[str, str]] = None,
     verbose: bool = False,
 ) -> Iterator[Union[tuple[str, str], list[str]]]:
@@ -540,15 +616,18 @@ def _stream_fasta(
     5. Optional tee to *output_filename*.
 
     Peak memory is ``O(number of records)`` for the auxiliary
-    duplicate/uniqueness bookkeeping (headers plus 16-byte sequence
-    digests -- never whole sequences) and ``O(single record)`` for the
-    sequence data itself.  When *expect_unique_header* is ``False`` and
-    all duplicate actions are ``'ignore'``, the auxiliary bookkeeping is
+    duplicate/uniqueness bookkeeping (headers plus 16-byte digests --
+    never whole sequences) and ``O(single record)`` for the sequence
+    data itself.  When *expect_unique_header* is ``False`` and all
+    duplicate actions are ``'ignore'``, the auxiliary bookkeeping is
     skipped entirely and memory is flat regardless of file size.
+
+    The input file is opened before the output file, so a missing input
+    never leaves an empty output file behind.
 
     Parameters
     ----------
-    filename : str
+    filename : str or os.PathLike
         Path to the FASTA file to read.
 
     expect_unique_header : bool, optional
@@ -578,7 +657,7 @@ def _stream_fasta(
         If ``True``, yield ``[header, sequence]`` lists; otherwise yield
         ``(header, sequence)`` tuples (default).
 
-    output_filename : str or None, optional
+    output_filename : str, os.PathLike, or None, optional
         If provided, each sanitized record is written to this path as it
         is yielded.  The output file is only complete once the generator
         has been fully consumed.
@@ -610,9 +689,12 @@ def _stream_fasta(
     # Only allocate bookkeeping structures for the actions that need them.
     seen_headers: Optional[set[str]] = set() if expect_unique_header else None
 
-    # duplicate records: header -> set of sequence digests
-    record_lookup: Optional[dict[str, set[bytes]]] = (
-        {} if duplicate_record_action in ('fail', 'remove') else None
+    # duplicate records: a set of 16-byte digests of (header, sequence).
+    # When headers are required to be unique a duplicate record (same
+    # header AND sequence) is impossible - the header check fires first -
+    # so the record check would only ever hash every sequence for nothing.
+    seen_records: Optional[set[bytes]] = (
+        set() if (duplicate_record_action in ('fail', 'remove') and not expect_unique_header) else None
     )
 
     # duplicate sequences: sequence digest -> first header seen (the header
@@ -621,7 +703,11 @@ def _stream_fasta(
         {} if duplicate_sequence_action in ('fail', 'remove') else None
     )
 
-    need_digest = record_lookup is not None or seq_lookup is not None
+    # Build the converter once (it caches its translate table) rather than
+    # once per record.
+    convert = _utilities._make_converter(correction_dictionary, alignment) if invalid_sequence_action.startswith('convert') else None
+    check_valid = _utilities.check_sequence_is_valid
+    printable = _utilities._printable
 
     n_read = 0
     n_yielded = 0
@@ -630,42 +716,43 @@ def _stream_fasta(
     n_invalid_removed = 0
     n_converted = 0
 
-    # Large write buffer to minimise syscall overhead, matching write_fasta.
-    out_fh = open(output_filename, 'w', buffering=1024 * 1024) if output_filename else None
-
-    if verbose:
-        print('[INFO]: Streaming file %s' % (filename))
+    # Open the input first so a missing input file never creates an empty
+    # output file.
+    in_fh = _open_fasta(filename)
+    out_fh: Optional[IO[str]] = None
 
     try:
-        for header, seq in _iter_fasta(filename, header_parser=header_parser):
+        if output_filename is not None:
+            out_fh = _open_output(output_filename)
+
+        if verbose:
+            print('[INFO]: Streaming file %s' % (filename))
+
+        for header, seq in _iter_fasta_lines(in_fh, header_parser):
             n_read += 1
 
             # 1. header uniqueness
             if seen_headers is not None:
                 if header in seen_headers:
-                    raise ProtfastaException('Found duplicate header (%s)' % (header))
+                    raise ProtfastaException('Found duplicate header (%s)' % (printable(header)))
                 seen_headers.add(header)
 
-            digest = _utilities._seq_hash(seq) if need_digest else b''
-
             # 2. duplicate records (identical header AND sequence)
-            if record_lookup is not None:
-                seen = record_lookup.get(header)
-                if seen is None:
-                    record_lookup[header] = {digest}
-                elif digest in seen:
+            if seen_records is not None:
+                key = _utilities._record_hash(header, seq)
+                if key in seen_records:
                     if duplicate_record_action == 'fail':
-                        raise ProtfastaException('Found duplicate entries of the following record\n:>%s\n%s' % (header, seq))
+                        raise ProtfastaException('Found duplicate entries of the following record\n:>%s\n%s' % (printable(header), printable(seq)))
                     n_dup_records_removed += 1
                     continue
-                else:
-                    seen.add(digest)
+                seen_records.add(key)
 
             # 3. duplicate sequences (identical sequence, any header)
             if seq_lookup is not None:
+                digest = _utilities._seq_hash(seq)
                 if digest in seq_lookup:
                     if duplicate_sequence_action == 'fail':
-                        raise ProtfastaException('Found duplicate sequences associated with the following headers\n1. %s\n\n2. %s' % (seq_lookup[digest], header))
+                        raise ProtfastaException('Found duplicate sequences associated with the following headers\n1. %s\n\n2. %s' % (printable(seq_lookup[digest]), printable(header)))
                     n_dup_seqs_removed += 1
                     continue
                 seq_lookup[digest] = header
@@ -675,45 +762,41 @@ def _stream_fasta(
                 pass
 
             elif invalid_sequence_action == 'fail':
-                (status, info) = _utilities.check_sequence_is_valid(seq, alignment)
+                (status, info) = check_valid(seq, alignment)
                 if status is not True:
-                    raise ProtfastaException('Failed on invalid amino acid: %s\nTaken from entry...\n>%s\n%s\n' % (info, header, seq))
+                    raise ProtfastaException('Failed on invalid amino acid: %s\nTaken from entry...\n>%s\n%s\n' % (printable(str(info)), printable(header), printable(seq)))
 
             elif invalid_sequence_action == 'remove':
-                (status, _info) = _utilities.check_sequence_is_valid(seq, alignment)
+                (status, _info) = check_valid(seq, alignment)
                 if status is not True:
                     n_invalid_removed += 1
                     continue
 
-            elif invalid_sequence_action == 'convert':
-                new_seq = _utilities.convert_to_valid(seq, correction_dictionary, alignment)
-                if new_seq != seq:
-                    n_converted += 1
-                (status, info) = _utilities.check_sequence_is_valid(new_seq, alignment)
-                if status is not True:
-                    inner = 'Failed on invalid amino acid: %s\nTaken from entry...\n>%s\n%s\n' % (info, header, new_seq)
-                    raise ProtfastaException("\n\n******* Despite fixing fixable errors, additional problems remain with the sequence*********\n%s" % (inner))
-                seq = new_seq
-
-            elif invalid_sequence_action == 'convert-ignore':
-                new_seq = _utilities.convert_to_valid(seq, correction_dictionary, alignment)
-                if new_seq != seq:
+            else:
+                # one of the three convert-* actions
+                assert convert is not None
+                new_seq = convert(seq)
+                if new_seq is not seq and new_seq != seq:
                     n_converted += 1
                 seq = new_seq
 
-            elif invalid_sequence_action == 'convert-remove':
-                new_seq = _utilities.convert_to_valid(seq, correction_dictionary, alignment)
-                if new_seq != seq:
-                    n_converted += 1
-                (status, _info) = _utilities.check_sequence_is_valid(new_seq, alignment)
-                if status is not True:
-                    n_invalid_removed += 1
-                    continue
-                seq = new_seq
+                if invalid_sequence_action == 'convert':
+                    (status, info) = check_valid(seq, alignment)
+                    if status is not True:
+                        inner = 'Failed on invalid amino acid: %s\nTaken from entry...\n>%s\n%s\n' % (printable(str(info)), printable(header), printable(seq))
+                        raise ProtfastaException("\n\n******* Despite fixing fixable errors, additional problems remain with the sequence*********\n%s" % (inner))
+
+                elif invalid_sequence_action == 'convert-remove':
+                    (status, _info) = check_valid(seq, alignment)
+                    if status is not True:
+                        n_invalid_removed += 1
+                        continue
+
+                # 'convert-ignore' keeps whatever is left
 
             # 5. tee the sanitized record to disk (if requested)
             if out_fh is not None:
-                _write_stream_record(out_fh, header, seq)
+                out_fh.write(_format_record(header, seq))
 
             n_yielded += 1
             if return_list:
@@ -735,5 +818,4 @@ def _stream_fasta(
     finally:
         if out_fh is not None:
             out_fh.close()
-
-
+        in_fh.close()

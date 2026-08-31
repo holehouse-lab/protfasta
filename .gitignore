@@ -108,3 +108,7 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# benchmark inputs and outputs are large / machine-specific
+benchmark/data/
+benchmark/results/

@@ -19,6 +19,7 @@ Be kind to each other.
 
 from __future__ import annotations
 
+import gc
 import os
 from typing import IO, Callable, Iterable, Iterator, Optional, Union
 
@@ -431,12 +432,26 @@ def _parse_fasta_all(
     # costs one pointer-sized slot per record rather than a copy.
     seen_headers: Optional[set[str]] = set() if expect_unique_header else None
 
-    for header, seq in _iter_fasta_lines(content, header_parser):
-        if seen_headers is not None:
-            if header in seen_headers:
-                raise ProtfastaException('Found duplicate header (%s)' % (_utilities._printable(header)))
-            seen_headers.add(header)
-        return_data.append([header, seq])
+    # Every [header, sequence] pair is a GC-tracked container, so a large
+    # file makes the cyclic garbage collector run thousands of times to scan
+    # objects that cannot possibly be part of a cycle - about 20% of the
+    # parse time at ten million records. The loop below is bounded and
+    # creates no cycles, so the collector is paused for its duration and
+    # restored (to whatever state it was in) on the way out, exceptions
+    # included. The streaming parser does not do this, because user code
+    # runs between its yields.
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        for header, seq in _iter_fasta_lines(content, header_parser):
+            if seen_headers is not None:
+                if header in seen_headers:
+                    raise ProtfastaException('Found duplicate header (%s)' % (_utilities._printable(header)))
+                seen_headers.add(header)
+            return_data.append([header, seq])
+    finally:
+        if gc_was_enabled:
+            gc.enable()
 
     if verbose:
         print('[INFO]: Parsed file to recover %i sequences' % (len(return_data)))

@@ -2112,6 +2112,27 @@ class TestParserEdgeCases:
     def test_iter_fasta_wrapper(self):
         assert list(_io._iter_fasta(SIMPLE_FILE))[0] == (WASL_HEADER, WASL_SEQ)
 
+    def test_gc_state_restored_after_parse(self):
+        import gc
+        assert gc.isenabled()
+        _io.internal_parse_fasta_file(SIMPLE_FILE)
+        assert gc.isenabled()
+
+    def test_gc_state_restored_after_failed_parse(self):
+        import gc
+        with pytest.raises(ProtfastaException):
+            _io.internal_parse_fasta_file(DUPLICATE_RECORD_FILE, expect_unique_header=True)
+        assert gc.isenabled()
+
+    def test_gc_left_disabled_if_caller_disabled_it(self):
+        import gc
+        gc.disable()
+        try:
+            _io.internal_parse_fasta_file(SIMPLE_FILE)
+            assert not gc.isenabled()
+        finally:
+            gc.enable()
+
 
 # ---------------------------------------------------------------------------
 # TestConverter

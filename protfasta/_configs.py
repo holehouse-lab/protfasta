@@ -55,11 +55,6 @@ STANDARD_AAS_WITH_GAP: list[str] = [
 ]
 """The 20 standard amino acids plus the dash gap character."""
 
-# Internal frozensets used for O(1) membership tests (public list versions
-# are kept above for backwards compatibility).
-_STANDARD_AAS_SET: frozenset[str] = frozenset(STANDARD_AAS)
-_STANDARD_AAS_WITH_GAP_SET: frozenset[str] = frozenset(STANDARD_AAS_WITH_GAP)
-
 # Pre-built translation tables for fast single-pass sequence cleaning via
 # ``str.translate``.  Built once at import time to avoid per-call rebuild.
 # (Keyed by code point, which is exactly what str.maketrans would produce

@@ -164,6 +164,10 @@ created, and so on), **pfasta** prints a single ``[FATAL ERROR]`` line
 describing the problem and exits with status ``1``. No output file is
 written in that case.
 
+If the length filters or ``--random-subsample`` leave no sequences at
+all, **pfasta** reports ``0 sequences remain after filtering`` and exits
+with status ``0``, again without writing an output file.
+
 
 .. toctree::
    :maxdepth: 2

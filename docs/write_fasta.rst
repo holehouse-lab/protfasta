@@ -20,12 +20,14 @@ Keyword arguments
        ``.fa`` but this is not enforced.
 
     *  ``linelength`` (default ``60``) - maximum residues per line.
-       Values below ``5`` are clamped to ``5``. Set to ``0``, ``None``
-       or ``False`` to write each sequence on a single line.
+       Values from ``1`` to ``4`` are clamped to ``5``. Set to ``0`` (or
+       any negative value), ``None`` or ``False`` to write each sequence
+       on a single line. A numerical string such as ``'60'`` is accepted
+       and cast.
 
     *  ``append_to_fasta`` (default ``False``) - when ``True``, new
        entries are appended to an existing file rather than
-       overwriting it.
+       overwriting it. Must be a boolean.
 
 
 Error handling
@@ -36,10 +38,14 @@ lower-level error escape, so a single ``except`` clause is enough:
 
     *  ``fasta_data`` is neither a dictionary nor a list.
     *  An element of a list is not a two-item ``[header, sequence]``
-       pair.
+       pair (a two-item tuple is accepted as well).
+    *  A header or sequence is not a string.
+    *  A header or sequence contains a line break, which would be read
+       back as a record boundary and silently corrupt the file.
+    *  A sequence is empty - empty records are never silently written.
     *  ``linelength`` cannot be interpreted as an integer. Note that a
        numerical string (``'60'``) *is* accepted and cast.
-    *  A sequence is empty - empty records are never silently written.
+    *  ``append_to_fasta`` is not a boolean.
     *  ``filename`` cannot be opened for writing (for example, its
        directory does not exist).
 

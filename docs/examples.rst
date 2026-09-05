@@ -92,10 +92,16 @@ Extract just the UniProt accession from a structured header such as
     import protfasta
 
     def get_accession(header):
-        return header.split('|')[1]
+        return header.split('|')[1] if '|' in header else header
 
     sequences = protfasta.read_fasta('uniprot.fasta',
                                      header_parser=get_accession)
+
+The ``if`` guard is there because the parser is smoke-tested with a
+plain string before the file is read (pass ``check_header_parser=False``
+to skip that). A parser must return a string for every header; returning
+``None`` raises a ``ProtfastaException`` naming the header rather than
+silently dropping the record.
 
 
 **Example 8 - Remove duplicate sequences and write directly to disk**

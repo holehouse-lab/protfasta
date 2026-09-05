@@ -10,7 +10,7 @@ protfasta - the simple FASTA parser for proteins
 
 It contains three distinct components:
 
-    1. A Python API for reading and writing FASTA files, which includes a collection of santization functions. This makes it easy to write code that reads/writes FASTA files.
+    1. A Python API for reading and writing FASTA files, which includes a collection of sanitization functions. This makes it easy to write code that reads/writes FASTA files.
 
     2. A streaming parser (``read_fasta_stream``) for memory-bounded access to very large FASTA files.
 
@@ -29,13 +29,13 @@ We built ``pfasta`` as a compact tool for working with FASTA files at the comman
 
 Will protfasta work with nucleotide-based FASTA files?
 .........................................................
-In principle yes, but none of our testing suites are set up to rigerously explore this. However, there's no reason it shouldn't, although it may be less efficient that some other tools such as the excellent `pyfaidx <https://pypi.org/project/pyfaidx/>`_.
+In principle yes, but none of our testing suites are set up to rigorously explore this. However, there's no reason it shouldn't, although it may be less efficient than some other tools such as the excellent `pyfaidx <https://pypi.org/project/pyfaidx/>`_.
 
 
 Bugs and help
 ..............
 
-If you find any bugs or have feature requests please raise an issue on our `Github page <https://github.com/holehouse-lab/protfasta/>`_. **protfasta** uses a continous integration suite for the main package, and **pfasta** has a set of local tests that are run upon updates.
+If you find any bugs or have feature requests please raise an issue on our `Github page <https://github.com/holehouse-lab/protfasta/>`_. The test suite, which is run in continuous integration on every supported Python version, covers both the Python API and the **pfasta** command-line tool.
 
 A note: **protfasta** requires Python 3.9 or higher, and is routinely tested against Python 3.9 through 3.14. We also run the test suite against the current Python 3.15 pre-release, although that build is allowed to fail without blocking a release.
 

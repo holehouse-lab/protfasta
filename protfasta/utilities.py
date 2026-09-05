@@ -124,6 +124,77 @@ def _printable(s: str) -> str:
     return s.encode('utf-8', 'backslashreplace').decode('utf-8')
 
 
+# Number of records handled per batch by the dataset-level validation and
+# conversion helpers below. Each batch is joined into one string and
+# examined with a handful of C-level passes, so the Python-level overhead
+# of a per-sequence call is paid once per batch rather than once per record
+# whenever the batch turns out to be clean (the overwhelmingly common
+# case). The value is not critical - anything from a few hundred to a few
+# thousand measures the same - and the transient joined string is only a
+# couple of hundred kilobytes at 512 records of typical length.
+_BATCH = 512
+
+
+####################################################################################################
+#
+#
+def _contains_any(text: str, keys: tuple[str, ...]) -> bool:
+    """Return ``True`` if any of *keys* occurs in *text*.
+
+    A loop of ``in`` tests, each a single C-level search, which is far
+    cheaper than any Python-level scan over *text*.
+
+    Parameters
+    ----------
+    text : str
+        The string to search.
+
+    keys : tuple[str, ...]
+        The substrings to look for.
+
+    Returns
+    -------
+    bool
+        Whether at least one key is present.
+    """
+    for k in keys:
+        if k in text:
+            return True
+    return False
+
+
+####################################################################################################
+#
+#
+def _batch_is_valid(batch: list[list[str]], valid_bytes: bytes) -> bool:
+    """Return ``True`` if every sequence in *batch* is entirely valid.
+
+    The sequences are concatenated and checked in one pass, exactly as
+    :func:`check_sequence_is_valid` checks a single sequence.  No separator
+    is needed: deleting every valid residue from the concatenation leaves
+    behind precisely the invalid characters of every member, so nothing can
+    hide across a boundary between two sequences.  A ``False`` result only
+    says that at least one member is invalid; the caller falls back to
+    per-sequence checks to find out which.
+
+    Parameters
+    ----------
+    batch : list[list[str]]
+        A slice of parsed FASTA data -- ``[header, sequence]`` pairs.
+
+    valid_bytes : bytes
+        The ASCII alphabet of valid residues (one of the
+        ``_VALID_BYTES_*`` tables).
+
+    Returns
+    -------
+    bool
+        Whether every sequence in the batch is valid.
+    """
+    joined = ''.join([entry[1] for entry in batch])
+    return joined.isascii() and not joined.encode('ascii').translate(None, valid_bytes)
+
+
 ####################################################################################################
 #
 #
@@ -181,6 +252,39 @@ def build_custom_dictionary(additional_dictionary: dict[str, str]) -> dict[str, 
 ####################################################################################################
 #
 #
+def _conversion_keys(
+    correction_dictionary: Optional[dict[str, str]] = None,
+    alignment: bool = False,
+) -> tuple[str, ...]:
+    """Return the characters (or strings) a converter would replace.
+
+    This is the set of keys of the table that :func:`_make_converter` would
+    apply for the same arguments: the caller's *correction_dictionary* when
+    one is given, otherwise the built-in table (with or without the gap
+    character, depending on *alignment*).
+
+    Parameters
+    ----------
+    correction_dictionary : dict[str, str] or None, optional
+        Custom mapping.  ``None`` or empty selects the built-in table.
+
+    alignment : bool, optional
+        Whether the built-in table should preserve dashes.  Ignored when a
+        custom dictionary is supplied.  Default ``False``.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The keys, in table order.
+    """
+    if not correction_dictionary:
+        return tuple(STANDARD_CONVERSION_WITH_GAP if alignment else STANDARD_CONVERSION)
+    return tuple(correction_dictionary)
+
+
+####################################################################################################
+#
+#
 def _make_converter(
     correction_dictionary: Optional[dict[str, str]] = None,
     alignment: bool = False,
@@ -222,24 +326,20 @@ def _make_converter(
 
     table: Optional[Mapping[int, Union[str, int, None]]]
     if not correction_dictionary:
-        if alignment:
-            table = _TRANSLATE_WITH_GAP
-            keys = tuple(STANDARD_CONVERSION_WITH_GAP)
-        else:
-            table = _TRANSLATE_STANDARD
-            keys = tuple(STANDARD_CONVERSION)
+        table = _TRANSLATE_WITH_GAP if alignment else _TRANSLATE_STANDARD
     else:
         _validate_correction_dictionary(correction_dictionary)
-        keys = tuple(correction_dictionary)
 
         # str.translate can only map single characters (its table is keyed
         # by code point); a dictionary with any multi-character key falls
         # back to sequential str.replace calls, applied in dictionary order
         # as it always has been.
-        if all(len(k) == 1 for k in keys):
+        if all(len(k) == 1 for k in correction_dictionary):
             table = {ord(k): v for k, v in correction_dictionary.items()}
         else:
             table = None
+
+    keys = _conversion_keys(correction_dictionary, alignment)
 
     if table is not None:
         tbl = table
@@ -384,6 +484,11 @@ def convert_invalid_sequences(
     :func:`_make_converter`.  The dataset is modified in place and also
     returned.
 
+    Sequences are processed in batches: the members of a batch are joined
+    and scanned once for each convertible character, and a batch in which
+    none occurs (the common case on real data) is skipped without touching
+    any of its sequences individually.
+
     Parameters
     ----------
     dataset : list[list[str]]
@@ -403,17 +508,29 @@ def convert_invalid_sequences(
         that were altered.
     """
     convert = _make_converter(correction_dictionary, alignment)
+    keys = _conversion_keys(correction_dictionary, alignment)
 
     count = 0
-    for entry in dataset:
-        s = entry[1]
-        new = convert(s)
-        # the converter hands back the very same object when it had
-        # nothing to do, so the identity test short-circuits the common
-        # case and the equality test covers a no-op mapping (e.g. A->A)
-        if new is not s and new != s:
-            entry[1] = new
-            count += 1
+    for start in range(0, len(dataset), _BATCH):
+        batch = dataset[start:start + _BATCH]
+
+        # A multi-character key can straddle the boundary between two
+        # adjacent sequences in the joined string, which only ever makes
+        # this test err on the side of looking at the batch member by
+        # member - never on the side of skipping a sequence that needs
+        # converting.
+        if not _contains_any(''.join([entry[1] for entry in batch]), keys):
+            continue
+
+        for entry in batch:
+            s = entry[1]
+            new = convert(s)
+            # the converter hands back the very same object when it had
+            # nothing to do, so the identity test short-circuits the common
+            # case and the equality test covers a no-op mapping (e.g. A->A)
+            if new is not s and new != s:
+                entry[1] = new
+                count += 1
 
     return (dataset, count)
 
@@ -426,6 +543,10 @@ def remove_invalid_sequences(
     alignment: bool = False,
 ) -> list[list[str]]:
     """Return only entries whose sequences are fully valid.
+
+    Sequences are checked in batches (see :func:`_batch_is_valid`); only a
+    batch that contains at least one invalid sequence is examined member by
+    member.
 
     Parameters
     ----------
@@ -440,7 +561,17 @@ def remove_invalid_sequences(
     list[list[str]]
         Filtered list containing only entries with valid sequences.
     """
-    return [element for element in dataset if check_sequence_is_valid(element[1], alignment)[0]]
+    valid_bytes = _VALID_BYTES_WITH_GAP if alignment else _VALID_BYTES_STANDARD
+
+    updated: list[list[str]] = []
+    for start in range(0, len(dataset), _BATCH):
+        batch = dataset[start:start + _BATCH]
+        if _batch_is_valid(batch, valid_bytes):
+            updated.extend(batch)
+        else:
+            updated.extend([entry for entry in batch if check_sequence_is_valid(entry[1], alignment)[0]])
+
+    return updated
 
 
 ####################################################################################################
@@ -451,6 +582,11 @@ def fail_on_invalid_sequences(
     alignment: bool = False,
 ) -> None:
     """Raise if any sequence in *dataset* contains invalid residues.
+
+    Sequences are checked in batches (see :func:`_batch_is_valid`); only a
+    batch that contains at least one invalid sequence is examined member by
+    member, so the sequence reported is always the first invalid one in
+    dataset order.
 
     Parameters
     ----------
@@ -465,10 +601,16 @@ def fail_on_invalid_sequences(
     ProtfastaException
         On the first sequence that contains an invalid character.
     """
-    for entry in dataset:
-        (status, info) = check_sequence_is_valid(entry[1], alignment)
-        if status is not True:
-            raise ProtfastaException('Failed on invalid amino acid: %s\nTaken from entry...\n>%s\n%s\n' % (_printable(str(info)), _printable(entry[0]), _printable(entry[1])))
+    valid_bytes = _VALID_BYTES_WITH_GAP if alignment else _VALID_BYTES_STANDARD
+
+    for start in range(0, len(dataset), _BATCH):
+        batch = dataset[start:start + _BATCH]
+        if _batch_is_valid(batch, valid_bytes):
+            continue
+        for entry in batch:
+            (status, info) = check_sequence_is_valid(entry[1], alignment)
+            if status is not True:
+                raise ProtfastaException('Failed on invalid amino acid: %s\nTaken from entry...\n>%s\n%s\n' % (_printable(str(info)), _printable(entry[0]), _printable(entry[1])))
 
 
 ####################################################################################################

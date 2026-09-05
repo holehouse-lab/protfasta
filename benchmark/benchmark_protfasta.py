@@ -83,6 +83,10 @@ def _run_mode(mode: str, filename: str) -> dict[str, Any]:
     n_records = 0
     n_residues = 0
 
+    # For the read_fasta modes the clock stops as soon as the call returns;
+    # the record and residue counts are taken afterwards so that the extra
+    # pass over the result is not charged to the parse. The streaming modes
+    # count inside the consuming loop, which is the work being measured.
     t0 = time.perf_counter()
     if mode == 'import-only':
         pass
@@ -90,6 +94,7 @@ def _run_mode(mode: str, filename: str) -> dict[str, Any]:
     elif mode == 'read_fasta':
         # (return_list is False, so the result is a dict - cast for the type checker)
         data = cast(dict, protfasta.read_fasta(filename))
+        seconds = time.perf_counter() - t0
         n_records = len(data)
         n_residues = sum(map(len, data.values()))
 
@@ -99,6 +104,7 @@ def _run_mode(mode: str, filename: str) -> dict[str, Any]:
                                                duplicate_record_action='ignore',
                                                duplicate_sequence_action='ignore',
                                                invalid_sequence_action='ignore'))
+        seconds = time.perf_counter() - t0
         n_records = len(data)
         n_residues = sum(map(len, data.values()))
 
@@ -119,7 +125,9 @@ def _run_mode(mode: str, filename: str) -> dict[str, Any]:
 
     else:
         raise ValueError('unknown mode %r' % (mode,))
-    seconds = time.perf_counter() - t0
+
+    if not mode.startswith('read_fasta'):
+        seconds = time.perf_counter() - t0
 
     return {
         'mode': mode,

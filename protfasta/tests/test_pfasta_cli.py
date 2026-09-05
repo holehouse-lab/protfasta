@@ -139,6 +139,15 @@ class TestCLINoArgs:
             _run_main(monkeypatch=monkeypatch)
         assert exc.value.code != 0
 
+    def test_no_args_message_has_a_single_error_prefix(self, monkeypatch, capsys):
+        # argparse adds 'prog: error:' itself; the message used to carry a
+        # second copy
+        with pytest.raises(SystemExit):
+            _run_main(monkeypatch=monkeypatch)
+        err = capsys.readouterr().err
+        assert "the following arguments are required: filename" in err
+        assert err.count("error:") == 1
+
 
 class TestCLIMissingFile:
     """Pointing at a non-existent file should error."""
@@ -391,6 +400,18 @@ class TestCLILengthFilters:
                 monkeypatch=monkeypatch,
             )
 
+    def test_equal_bounds_fail(self, monkeypatch, capsys):
+        # both bounds are exclusive, so equal values can never keep anything
+        with pytest.raises(SystemExit) as exc:
+            _run_main(
+                SIMPLE_FILE,
+                "--longest-seq", "100", "--shortest-seq", "100",
+                "--no-outputfile", "--silent",
+                monkeypatch=monkeypatch,
+            )
+        assert exc.value.code != 0
+        assert "must be larger" in capsys.readouterr().out
+
     def test_shortest_seq_zero_is_honoured(self, tmp_path, monkeypatch):
         # 0 is falsy, but an explicitly-passed 0 must still apply the filter
         # (keeping every sequence of length > 0, i.e. all of them).
@@ -439,6 +460,17 @@ class TestCLILineLength:
                 monkeypatch=monkeypatch,
             )
 
+    def test_number_lines_zero_is_rejected(self, monkeypatch, capsys):
+        # 0 is falsy and used to fall through to the default of 60
+        with pytest.raises(SystemExit) as exc:
+            _run_main(
+                SIMPLE_FILE,
+                "--number-lines", "0", "--no-outputfile", "--silent",
+                monkeypatch=monkeypatch,
+            )
+        assert exc.value.code != 0
+        assert "--number-lines" in capsys.readouterr().out
+
 
 class TestCLIRandomSubsample:
     """--random-subsample option."""
@@ -465,6 +497,19 @@ class TestCLIRandomSubsample:
         assert len(seqs) == 3
         for header, seq in seqs.items():
             assert full[header] == seq
+
+    def test_subsample_zero_writes_no_file(self, tmp_path, monkeypatch):
+        # nothing is left after a subsample of 0, so pfasta says so and
+        # exits cleanly rather than writing an empty FASTA file
+        outfile = str(tmp_path / "out.fasta")
+        with pytest.raises(SystemExit) as exc:
+            _run_main(
+                SIMPLE_FILE, "-o", outfile,
+                "--random-subsample", "0", "--silent",
+                monkeypatch=monkeypatch,
+            )
+        assert exc.value.code == 0
+        assert not os.path.exists(outfile)
 
     def test_subsample_larger_than_dataset(self, tmp_path, monkeypatch):
         outfile = str(tmp_path / "out.fasta")

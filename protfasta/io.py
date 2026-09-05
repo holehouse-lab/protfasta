@@ -165,15 +165,16 @@ def check_inputs(
     verbose: bool,
     correction_dictionary: Optional[dict[str, str]],
 ) -> None:
-    """Validate all input arguments passed to :func:`read_fasta`.
+    """Validate the arguments shared by :func:`read_fasta` and :func:`read_fasta_stream`.
 
     This is a stateless guard function: it either returns ``None`` when
     every argument is acceptable, or raises a
     :class:`~protfasta.protfasta_exceptions.ProtfastaException` describing
     the first problem it encounters.
 
-    If new functionality is added to ``read_fasta``, the corresponding
-    keyword must be validated here.
+    If new functionality is added to ``read_fasta`` or
+    ``read_fasta_stream``, the corresponding keyword must be validated
+    here.
 
     Parameters
     ----------
@@ -324,7 +325,9 @@ def _iter_fasta_lines(
     header_parser : callable or None, optional
         A function ``(str) -> str`` applied to every raw header (with the
         leading ``">"`` already removed).  ``None`` means headers are used
-        verbatim.
+        verbatim.  The function must return a string for every header;
+        anything else (``None`` from a regular expression that did not
+        match, say) is an error rather than a silently dropped record.
 
     Yields
     ------
@@ -335,7 +338,8 @@ def _iter_fasta_lines(
     Raises
     ------
     ProtfastaException
-        If *header_parser* raises on a header encountered in the file.
+        If *header_parser* raises on, or returns something other than a
+        string for, a header encountered in the file.
     """
 
     # Accumulate sequence lines into a list and join once per record;
@@ -363,10 +367,18 @@ def _iter_fasta_lines(
             # Start the new record.
             h = line[1:]
             if header_parser is not None:
+                raw = h
                 try:
-                    h = header_parser(h)
+                    h = header_parser(raw)
                 except Exception as e:
-                    raise ProtfastaException('header_parser raised an exception on header [%s]\nException: %s' % (_utilities._printable(h), e))
+                    raise ProtfastaException('header_parser raised an exception on header [%s]\nException: %s' % (_utilities._printable(raw), e))
+
+                # A non-string return value (None from a failed regular
+                # expression match is the classic case) must not be allowed
+                # through: a None header would make the record look like
+                # sequence data with no header and it would silently vanish.
+                if not isinstance(h, str):
+                    raise ProtfastaException('header_parser returned %s rather than a string for header [%s]' % (type(h).__name__, _utilities._printable(raw)))
             header = h
             seq_parts = []
         else:
@@ -631,10 +643,12 @@ def _stream_fasta(
     5. Optional tee to *output_filename*.
 
     Peak memory is ``O(number of records)`` for the auxiliary
-    duplicate/uniqueness bookkeeping (headers plus 16-byte digests --
-    never whole sequences) and ``O(single record)`` for the sequence
-    data itself.  When *expect_unique_header* is ``False`` and all
-    duplicate actions are ``'ignore'``, the auxiliary bookkeeping is
+    duplicate/uniqueness bookkeeping (16-byte digests -- never whole
+    sequences -- plus the header strings themselves under
+    *expect_unique_header* and ``duplicate_sequence_action='fail'``, which
+    both need to name a header later) and ``O(single record)`` for the
+    sequence data itself.  When *expect_unique_header* is ``False`` and
+    all duplicate actions are ``'ignore'``, the auxiliary bookkeeping is
     skipped entirely and memory is flat regardless of file size.
 
     The input file is opened before the output file, so a missing input
@@ -712,11 +726,12 @@ def _stream_fasta(
         set() if (duplicate_record_action in ('fail', 'remove') and not expect_unique_header) else None
     )
 
-    # duplicate sequences: sequence digest -> first header seen (the header
-    # is retained so the 'fail' message can name both offenders).
-    seq_lookup: Optional[dict[bytes, str]] = (
-        {} if duplicate_sequence_action in ('fail', 'remove') else None
-    )
+    # duplicate sequences. For 'fail' the first header seen for each digest
+    # is retained so the error message can name both offenders; for 'remove'
+    # only the digests are needed, and not holding on to the headers leaves
+    # every header string free to be released once it has been yielded.
+    seq_lookup: Optional[dict[bytes, str]] = {} if duplicate_sequence_action == 'fail' else None
+    seen_seqs: Optional[set[bytes]] = set() if duplicate_sequence_action == 'remove' else None
 
     # Build the converter once (it caches its translate table) rather than
     # once per record.
@@ -766,11 +781,14 @@ def _stream_fasta(
             if seq_lookup is not None:
                 digest = _utilities._seq_hash(seq)
                 if digest in seq_lookup:
-                    if duplicate_sequence_action == 'fail':
-                        raise ProtfastaException('Found duplicate sequences associated with the following headers\n1. %s\n\n2. %s' % (printable(seq_lookup[digest]), printable(header)))
+                    raise ProtfastaException('Found duplicate sequences associated with the following headers\n1. %s\n\n2. %s' % (printable(seq_lookup[digest]), printable(header)))
+                seq_lookup[digest] = header
+            elif seen_seqs is not None:
+                digest = _utilities._seq_hash(seq)
+                if digest in seen_seqs:
                     n_dup_seqs_removed += 1
                     continue
-                seq_lookup[digest] = header
+                seen_seqs.add(digest)
 
             # 4. invalid-residue handling (per record)
             if invalid_sequence_action == 'ignore':

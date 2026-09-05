@@ -35,6 +35,7 @@ Organized into test classes by functional area:
 - TestEncoding: byte-order marks and non-UTF-8 bytes
 - TestParserEdgeCases: line-level edge cases in the parsing engine
 - TestConverter: the shared sequence converter
+- TestBatchedValidation: batched validation/conversion finds every offender
 - TestWriteFastaAtomicity: write_fasta never leaves a partial file
 - TestStreamRobustness: file-handling edge cases when streaming
 - TestReadFastaStreamParity: read_fasta and read_fasta_stream agree
@@ -899,9 +900,6 @@ class TestReadFastaHeaderParser:
         f = tmp_path / 'in.fasta'
         f.write_text('>sp|P1|OK\nACDE\n>no_pipe_here\nFGHI\n')
 
-        def accession(s):
-            return s.split('|')[1] if '|' not in 'this test string should work' or True else s
-
         def strict(s):
             return s.split('|')[1]
 
@@ -909,7 +907,35 @@ class TestReadFastaHeaderParser:
             protfasta.read_fasta(str(f), header_parser=strict, check_header_parser=False)
         with pytest.raises(ProtfastaException, match='no_pipe_here'):
             list(protfasta.read_fasta_stream(str(f), header_parser=strict, check_header_parser=False))
-        del accession
+
+    def test_parser_returning_none_raises_rather_than_dropping_record(self, tmp_path):
+        # Regression: a None header made the record look like header-less
+        # sequence data, so it silently vanished from the result.
+        f = tmp_path / 'in.fasta'
+        f.write_text('>a\nACD\n>b\nEFG\n>c\nHIK\n')
+
+        def sometimes_none(s):
+            return None if s == 'b' else s
+
+        with pytest.raises(ProtfastaException, match=r'returned NoneType.*\[b\]'):
+            protfasta.read_fasta(str(f), header_parser=sometimes_none, check_header_parser=False)
+        with pytest.raises(ProtfastaException, match=r'returned NoneType.*\[b\]'):
+            list(protfasta.read_fasta_stream(str(f), header_parser=sometimes_none, check_header_parser=False))
+
+    def test_parser_returning_non_string_raises(self, tmp_path):
+        f = tmp_path / 'in.fasta'
+        f.write_text('>a\nACD\n>b\nEFG\n')
+        with pytest.raises(ProtfastaException, match=r'returned int.*\[b\]'):
+            protfasta.read_fasta(str(f), header_parser=lambda s: 42 if s == 'b' else s, check_header_parser=False)
+
+    def test_documented_accession_parser_passes_smoke_test(self):
+        # the header parser shown in the documentation must survive the
+        # default smoke test, which feeds it a string without a '|'
+        def get_accession(header):
+            return header.split('|')[1] if '|' in header else header
+
+        result = protfasta.read_fasta(SIMPLE_FILE, header_parser=get_accession)
+        assert 'O00401' in result
 
     def test_uniprot_id_parser(self):
         def uniprot_id(s):
@@ -1242,6 +1268,11 @@ class TestReadFastaOutputFile:
         assert len(readback) == 2
         assert readback == result
 
+    def test_empty_output_filename_raises(self):
+        # '' used to be treated as "no output file" and silently skipped
+        with pytest.raises(ProtfastaException, match='Unable to open file for writing'):
+            protfasta.read_fasta(SIMPLE_FILE, output_filename='')
+
 
 # ---------------------------------------------------------------------------
 # TestReadFastaCorrectionDictionary
@@ -1461,6 +1492,63 @@ class TestWriteFasta:
         with open(outfile) as f:
             seq_lines = [line for line in f if not line.startswith('>') and line.strip()]
         assert len(seq_lines) == 1
+
+    def test_linelength_negative_no_wrap(self, tmp_path):
+        outfile = str(tmp_path / 'test.fasta')
+        protfasta.write_fasta({'header': 'A' * 200}, outfile, linelength=-3)
+        with open(outfile) as f:
+            assert f.read() == '>header\n%s\n\n' % ('A' * 200)
+
+    def test_tuple_pairs_accepted(self, tmp_path):
+        outfile = tmp_path / 'out.fasta'
+        protfasta.write_fasta([('h1', 'ACD'), ('h2', 'EFG')], outfile)
+        assert protfasta.read_fasta(outfile) == {'h1': 'ACD', 'h2': 'EFG'}
+
+    def test_non_string_sequence_raises(self, tmp_path):
+        # a list of residues used to raise a raw TypeError when wrapped and
+        # be str()-ed into the file when written on a single line
+        outfile = tmp_path / 'out.fasta'
+        for bad in (['A', 'C', 'D'], 12345, None, b'ACD'):
+            with pytest.raises(ProtfastaException, match='not a string'):
+                protfasta.write_fasta({'h': bad}, outfile)
+            with pytest.raises(ProtfastaException, match='not a string'):
+                protfasta.write_fasta({'h': bad}, outfile, linelength=None)
+        assert not outfile.exists()
+
+    def test_non_string_header_raises(self, tmp_path):
+        outfile = tmp_path / 'out.fasta'
+        with pytest.raises(ProtfastaException, match='not a string'):
+            protfasta.write_fasta({7: 'ACD'}, outfile)
+        assert not outfile.exists()
+
+    def test_line_break_in_header_raises(self, tmp_path):
+        # a break inside a header would be read back as a record boundary
+        outfile = tmp_path / 'out.fasta'
+        for header in ('a\nb', 'a\rb', 'trailing\n'):
+            with pytest.raises(ProtfastaException, match='line break'):
+                protfasta.write_fasta({header: 'ACD'}, outfile)
+        assert not outfile.exists()
+
+    def test_line_break_in_sequence_raises(self, tmp_path):
+        outfile = tmp_path / 'out.fasta'
+        for seq in ('AC\nD', 'AC\rD'):
+            with pytest.raises(ProtfastaException, match='line break'):
+                protfasta.write_fasta([['h', seq]], outfile)
+        assert not outfile.exists()
+
+    def test_flat_list_of_strings_raises(self, tmp_path):
+        # ['h1', 'AC'] is not a list of pairs, even though each element
+        # happens to have length two; it used to be written as two records
+        outfile = tmp_path / 'out.fasta'
+        with pytest.raises(ProtfastaException, match='2-position sublist'):
+            protfasta.write_fasta(['h1', 'AC'], outfile)
+        assert not outfile.exists()
+
+    def test_append_to_fasta_non_bool_raises(self, tmp_path):
+        outfile = tmp_path / 'out.fasta'
+        with pytest.raises(ProtfastaException, match='append_to_fasta'):
+            protfasta.write_fasta({'h': 'ACD'}, outfile, append_to_fasta='yes')
+        assert not outfile.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1788,6 +1876,18 @@ class TestReadFastaStream:
     def test_output_filename_same_as_input_raises(self):
         with pytest.raises(ProtfastaException):
             protfasta.read_fasta_stream(SIMPLE_FILE, output_filename=SIMPLE_FILE)
+
+    def test_duplicate_sequence_fail_names_both_headers(self, tmp_path):
+        f = tmp_path / 'dup.fasta'
+        f.write_text('>first\nACDE\n>other\nFGHI\n>second\nACDE\n')
+        with pytest.raises(ProtfastaException, match=r'1\. first\n\n2\. second'):
+            list(protfasta.read_fasta_stream(str(f), duplicate_sequence_action='fail', silence_warnings=True))
+
+    def test_duplicate_sequence_remove_keeps_first(self, tmp_path):
+        f = tmp_path / 'dup.fasta'
+        f.write_text('>first\nACDE\n>other\nFGHI\n>second\nACDE\n>third\nACDE\n')
+        streamed = list(protfasta.read_fasta_stream(str(f), duplicate_sequence_action='remove', silence_warnings=True))
+        assert streamed == [('first', 'ACDE'), ('other', 'FGHI')]
 
     def test_alignment_parity(self):
         ref = protfasta.read_fasta(ALIGNED_VALID_FILE, alignment=True, return_list=True)
@@ -2183,6 +2283,118 @@ class TestConverter:
     def test_read_fasta_rejects_bad_correction_dictionary_before_reading(self):
         with pytest.raises(ProtfastaException, match='non-empty'):
             protfasta.read_fasta('/definitely/not/a/file.fasta', invalid_sequence_action='convert', correction_dictionary={'': 'A'})
+
+    def test_conversion_keys(self):
+        assert _utilities._conversion_keys() == tuple(_configs.STANDARD_CONVERSION)
+        assert _utilities._conversion_keys(alignment=True) == tuple(_configs.STANDARD_CONVERSION_WITH_GAP)
+        assert _utilities._conversion_keys({}) == tuple(_configs.STANDARD_CONVERSION)
+        assert _utilities._conversion_keys({'.': 'A', 'XX': 'G'}) == ('.', 'XX')
+        assert _utilities._conversion_keys({'.': 'A'}, alignment=True) == ('.',)
+
+    def test_empty_correction_dictionary_means_builtin_table(self, tmp_path):
+        f = tmp_path / 'in.fasta'
+        f.write_text('>h1\nACDB*\n')
+        assert protfasta.read_fasta(str(f), invalid_sequence_action='convert', correction_dictionary={}) == {'h1': 'ACDN'}
+
+
+# ---------------------------------------------------------------------------
+# TestBatchedValidation
+# ---------------------------------------------------------------------------
+class TestBatchedValidation:
+    """The dataset-level validation and conversion helpers examine records
+    in batches of ``_BATCH``, only dropping to per-record checks for a batch
+    that needs them; an offender must be handled wherever it sits."""
+
+    B = _utilities._BATCH
+    N = B * 2 + 7
+    POSITIONS = [0, B - 1, B, B + 1, 2 * B, N - 1]
+    CLEAN = 'ACDEFGHIK' * 3
+
+    @classmethod
+    def _clean(cls):
+        return [['h%d' % i, cls.CLEAN] for i in range(cls.N)]
+
+    @pytest.mark.parametrize('pos', POSITIONS)
+    def test_fail_reports_offender_at_any_position(self, pos):
+        data = self._clean()
+        data[pos][1] = 'ACDEF*GHIK'
+        with pytest.raises(ProtfastaException, match=r'invalid amino acid: \*') as exc:
+            _utilities.fail_on_invalid_sequences(data)
+        assert '>h%d\n' % pos in str(exc.value)
+
+    def test_fail_reports_first_offender_in_dataset_order(self):
+        data = self._clean()
+        data[self.N - 1][1] = 'ACD*'
+        data[3][1] = 'ACD.'
+        with pytest.raises(ProtfastaException, match=r'invalid amino acid: \.'):
+            _utilities.fail_on_invalid_sequences(data)
+
+    def test_fail_passes_clean_data(self):
+        _utilities.fail_on_invalid_sequences(self._clean())
+
+    @pytest.mark.parametrize('bad', ['ACD*', 'ACDÉ', 'acd'])
+    @pytest.mark.parametrize('pos', POSITIONS)
+    def test_remove_drops_only_offender(self, pos, bad):
+        data = self._clean()
+        data[pos][1] = bad
+        result = _utilities.remove_invalid_sequences(data)
+        assert [e[0] for e in result] == ['h%d' % i for i in range(self.N) if i != pos]
+
+    def test_remove_keeps_everything_when_clean(self):
+        data = self._clean()
+        assert _utilities.remove_invalid_sequences(data) == data
+
+    def test_alignment_flag_respected_in_batches(self):
+        data = self._clean()
+        data[self.N // 2][1] = 'AC--D'
+        with pytest.raises(ProtfastaException):
+            _utilities.fail_on_invalid_sequences(data)
+        _utilities.fail_on_invalid_sequences(data, alignment=True)
+        assert len(_utilities.remove_invalid_sequences(data)) == self.N - 1
+        assert len(_utilities.remove_invalid_sequences(data, alignment=True)) == self.N
+
+    @pytest.mark.parametrize('pos', POSITIONS)
+    def test_convert_touches_only_records_that_need_it(self, pos):
+        data = self._clean()
+        data[pos][1] = 'ACDB'
+        _, count = _utilities.convert_invalid_sequences(data)
+        assert count == 1
+        assert data[pos][1] == 'ACDN'
+        assert all(e[1] == self.CLEAN for i, e in enumerate(data) if i != pos)
+
+    def test_convert_leaves_clean_data_untouched(self):
+        data = self._clean()
+        originals = [e[1] for e in data]
+        _, count = _utilities.convert_invalid_sequences(data)
+        assert count == 0
+        assert all(e[1] is o for e, o in zip(data, originals))
+
+    def test_convert_multi_char_key_spanning_batch_boundary_is_not_a_match(self):
+        # 'XX' must not be matched across the join of two adjacent sequences
+        data = self._clean()
+        data[self.B - 1][1] = 'ACDX'
+        data[self.B][1] = 'XACD'
+        _, count = _utilities.convert_invalid_sequences(data, {'XX': 'G'})
+        assert count == 0
+        assert (data[self.B - 1][1], data[self.B][1]) == ('ACDX', 'XACD')
+
+    def test_convert_multi_char_key_in_a_later_batch(self):
+        data = self._clean()
+        data[self.N - 1][1] = 'AXXD'
+        _, count = _utilities.convert_invalid_sequences(data, {'XX': 'G'})
+        assert count == 1
+        assert data[-1][1] == 'AGD'
+
+    def test_read_fasta_and_stream_agree_across_batch_boundary(self, tmp_path):
+        f = tmp_path / 'big.fasta'
+        f.write_text(''.join('>h%d\n%s\n' % (i, 'ACDB.' if i == self.B else 'ACDEF') for i in range(self.N)))
+        for action in ('remove', 'convert-ignore', 'convert-remove'):
+            ref = protfasta.read_fasta(str(f), invalid_sequence_action=action, return_list=True)
+            streamed = [list(r) for r in protfasta.read_fasta_stream(str(f), invalid_sequence_action=action)]
+            assert streamed == ref, action
+        for action in ('fail', 'convert'):
+            with pytest.raises(ProtfastaException, match='>h%d' % self.B):
+                protfasta.read_fasta(str(f), invalid_sequence_action=action)
 
 
 # ---------------------------------------------------------------------------

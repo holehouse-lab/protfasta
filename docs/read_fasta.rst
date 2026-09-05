@@ -64,9 +64,30 @@ Both ``filename`` and ``output_filename`` accept either a string or a
 :class:`pathlib.Path`. Anything that goes wrong - a bad keyword, a
 missing or unreadable file, an output file that cannot be created, an
 invalid residue under ``invalid_sequence_action='fail'``, a
-``header_parser`` that raises on a real header - is raised as a
-``ProtfastaException``, so callers only need to catch one exception
-type.
+``header_parser`` that raises on (or returns something other than a
+string for) a real header - is raised as a ``ProtfastaException``, so
+callers only need to catch one exception type.
+
+
+Header parsing
+...............
+
+``header_parser`` is a callable ``(str) -> str`` applied to every raw
+header (with the leading ``>`` already removed) before any uniqueness
+check. It is smoke-tested with a plain string before the file is opened
+(disable that with ``check_header_parser=False``), so a parser that
+assumes a particular structure needs a fallback:
+
+.. code-block:: python
+
+    def get_accession(header):
+        # '>sp|P12345|NAME_HUMAN ...' -> 'P12345'
+        return header.split('|')[1] if '|' in header else header
+
+The parser must return a string for every header in the file. Returning
+anything else - ``None`` from a regular expression that did not match is
+the classic case - raises a ``ProtfastaException`` naming the header
+rather than silently dropping the record.
 
 
 Encoding
@@ -92,9 +113,9 @@ Default conversion table
 
 When ``invalid_sequence_action`` includes conversion and no custom
 ``correction_dictionary`` is supplied, these replacements are applied
-(a custom dictionary replaces this table entirely; its keys must be
-non-empty strings and its values strings, and multi-character keys are
-allowed):
+(a custom dictionary replaces this table entirely, although an empty one
+is treated the same as ``None``; its keys must be non-empty strings and
+its values strings, and multi-character keys are allowed):
 
     *  ``B`` -> ``N``
     *  ``U`` -> ``C``

@@ -23,6 +23,8 @@ For all documentation see [https://protfasta.readthedocs.io/en/latest/](https://
 
 For code see [https://github.com/holehouse-lab/protfasta](https://github.com/holehouse-lab/protfasta).
 
+If you want to change the package rather than use it, [ARCHITECTURE.md](ARCHITECTURE.md) walks through how a `read_fasta` and a `write_fasta` call move through the modules.
+
 ## Installation
 
 `protfasta` has been tested on Linux and macOS. It should also work on Windows but we haven't tested it there yet. 

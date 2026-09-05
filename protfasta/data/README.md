@@ -1,21 +1,5 @@
-# Sample Package Data
+# Package data
 
-This directory contains sample additional data you may want to include with your package.
-This is a place where non-code related additional information (such as data files, molecular structures,  etc.) can 
-go that you want to ship alongside your code.
+`test_data/` holds the small FASTA files the test suite reads: a clean UniProt-style set, files with duplicate records and duplicate sequences, files with convertible and unconvertible non-standard residues, and a few short alignments. They are installed with the package (see `graft protfasta` in `MANIFEST.in`) so that the suite can be run against an installed copy with `pytest --pyargs protfasta.tests`, which is what tox and the CI matrix do. Tests locate the directory through `protfasta._get_data('test_data')` rather than a path relative to the source tree.
 
-Please note that it is not recommended to place large files in your git directory. If your project requires files larger
-than a few megabytes in size it is recommended to host these files elsewhere. This is especially true for binary files
-as the `git` structure is unable to correctly take updates to these files and will store a complete copy of every version
-in your `git` history which can quickly add up. As a note most `git` hosting services like GitHub have a 1 GB per repository
-cap.
-
-## Including package data
-
-Modify your package's `setup.py` file and the `setup()` command. Include the 
-[`package_data`](http://setuptools.readthedocs.io/en/latest/setuptools.html#basic-use) keyword and point it at the 
-correct files.
-
-## Manifest
-
-* `look_and_say.dat`: first entries of the "Look and Say" integer series, sequence [A005150](https://oeis.org/A005150)
+Anything the tests write goes to pytest-managed temporary directories, so nothing under here is modified by a test run.

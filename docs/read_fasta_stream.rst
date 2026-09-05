@@ -101,7 +101,9 @@ them adds auxiliary state that grows with the *number of records*:
        ``expect_unique_header=True`` this check is skipped entirely,
        since unique headers already rule out duplicate records.)
     *  ``duplicate_sequence_action`` set to ``'fail'`` or ``'remove'``
-       keeps a running set of sequence digests.
+       keeps a running set of sequence digests (``'fail'`` also keeps
+       the first header seen for each sequence, so that its error can
+       name both records).
 
 Only 16-byte digests are stored - never whole sequences - so this is
 still far lighter than a full load, but on a file with hundreds of
@@ -149,11 +151,19 @@ used to extract a UniProt accession from a structured header:
 
     def uniprot_id(header):
         # '>sp|P12345|NAME_HUMAN ...' -> 'P12345'
-        return header.split('|')[1]
+        return header.split('|')[1] if '|' in header else header
 
     for acc, seq in protfasta.read_fasta_stream('uniprot.fasta',
                                                 header_parser=uniprot_id):
         ...
+
+The fallback matters: the parser is smoke-tested with a plain string
+before the file is opened (see ``check_header_parser``), so a version
+that assumes a ``|`` is present would fail that test. The parser must
+also return a string for every header - returning ``None`` (from a
+regular expression that did not match, say) raises a
+``ProtfastaException`` naming the header rather than silently dropping
+the record.
 
 
 Sanitizing on the fly

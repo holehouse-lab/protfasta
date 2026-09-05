@@ -11,9 +11,6 @@ __pycache__/
 
 protfasta/_version.py
 
-# special to avoid including out data from tests
-protfasta/tests/outdata/*fasta
-
 # Distribution / packaging
 .Python
 env/

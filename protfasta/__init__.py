@@ -10,20 +10,26 @@ from protfasta._configs import STANDARD_AAS, STANDARD_CONVERSION
 from protfasta import protfasta as _protfasta
 from protfasta.protfasta_exceptions import ProtfastaException
 
+_ROOT = os.path.abspath(os.path.dirname(__file__))
+
+
 ## ------------------------------------------------------------
 # READTHEDOCS versioning hack
 #
-# Generate _version.py if missing and in the Read the Docs environment
-if os.getenv("READTHEDOCS") == "True" and not os.path.isfile('../protfasta/_version.py'):   
-    import versioningit            
-    __version__ = versioningit.get_version('../')
+# Read the Docs builds the documentation from a bare checkout without
+# installing the package, so the versioningit-generated _version.py does not
+# exist there. In that environment (and only there) the version is computed
+# from git on the fly instead. Both paths are anchored on this file's
+# location rather than the working directory so the check does not depend on
+# where sphinx happens to be run from.
+if os.getenv("READTHEDOCS") == "True" and not os.path.isfile(os.path.join(_ROOT, '_version.py')):
+    import versioningit
+    __version__ = versioningit.get_version(os.path.dirname(_ROOT))
 else:
     from ._version import __version__
-    
-    
+
+
 ## ------------------------------------------------------------
-
-
 
 
 __all__ = [
@@ -35,9 +41,6 @@ __all__ = [
     'STANDARD_CONVERSION',
     '__version__',
 ]
-
-
-_ROOT = os.path.abspath(os.path.dirname(__file__))
 
 
 def _get_data(path: str) -> str:
@@ -120,7 +123,10 @@ def read_fasta(
         from structured headers.  When *check_header_parser* is
         ``True`` (the default) the function is smoke-tested with the
         string ``'this test string should work'`` before parsing
-        begins.
+        begins.  The function must return a string for every header in
+        the file; if it raises, or returns anything else (``None`` from
+        a regular expression that did not match, say), a
+        ``ProtfastaException`` naming the offending header is raised.
 
     check_header_parser : bool, optional
         If ``True`` (default), *header_parser* is tested with a dummy
@@ -181,8 +187,9 @@ def read_fasta(
         * ``B`` -> ``N``, ``U`` -> ``C``, ``X`` -> ``G``, ``Z`` -> ``Q``
         * ``*`` -> ``''``, ``-`` -> ``''``, ``' '`` -> ``''``
 
-        A custom dictionary **replaces** the built-in table entirely.
-        Keys must be non-empty strings and values must be strings.
+        A custom dictionary **replaces** the built-in table entirely
+        (an empty dictionary is treated the same as ``None``).  Keys
+        must be non-empty strings and values must be strings.
 
     verbose : bool, optional
         If ``True``, informational messages are printed to stdout
@@ -264,8 +271,10 @@ def read_fasta(
                                                           correction_dictionary=correction_dictionary)
         
 
-    # If we wanted to write the final set of sequences we're going to use...:
-    if output_filename:
+    # If we wanted to write the final set of sequences we're going to use...
+    # (tested against None rather than for truthiness so that an empty
+    # string is reported as an unwritable path instead of silently skipped)
+    if output_filename is not None:
         write_fasta(updated, output_filename)
 
     # if we asked for a list...
@@ -538,17 +547,20 @@ def write_fasta(
     compliant FASTA file to *filename*.
 
     The data is validated in full **before** the file is opened, so a bad
-    entry (an empty sequence, a malformed list element) raises without
-    creating, truncating, or appending to *filename*.  Output is written
-    as UTF-8; headers that came from a non-UTF-8 file via
-    :func:`read_fasta` are written back out with their original bytes.
+    entry raises without creating, truncating, or appending to
+    *filename*.  Every header and sequence must be a string, every
+    sequence must be non-empty, and neither may contain a line break (a
+    break inside either would be read back as a record boundary, silently
+    corrupting the file).  Output is written as UTF-8; headers that came
+    from a non-UTF-8 file via :func:`read_fasta` are written back out
+    with their original bytes.
 
     Parameters
     ----------
     fasta_data : dict[str, str] or list[list[str]]
         Sequence data.  If a dictionary, keys are headers and values are
         amino-acid sequences.  If a list, each element must be a
-        two-element list ``[header, sequence]``.
+        two-element list (or tuple) ``[header, sequence]``.
 
     filename : str or os.PathLike
         Destination file path.  Should conventionally end with
@@ -556,9 +568,10 @@ def write_fasta(
 
     linelength : int, bool, or None, optional
         Maximum number of residues per line in the output.  Default is
-        ``60`` (the UniProt convention).  Values below ``5`` are clamped
-        to ``5``.  Set to ``0``, ``None``, or ``False`` to write each
-        sequence on a single line.
+        ``60`` (the UniProt convention).  Values from ``1`` to ``4`` are
+        clamped to ``5``.  Set to ``0`` (or any negative value),
+        ``None``, or ``False`` to write each sequence on a single line.
+        A numerical string such as ``'60'`` is accepted and cast.
 
     append_to_fasta : bool, optional
         If ``True``, new entries are appended to *filename* if it
@@ -573,9 +586,11 @@ def write_fasta(
     ------
     ProtfastaException
         If *fasta_data* is neither a dictionary nor a list, if a list
-        element does not contain exactly two items, if *linelength* is
-        not an integer (or ``0``/``None``/``False``), if a sequence is
-        empty, or if *filename* cannot be opened for writing.
+        element is not a two-item list or tuple, if a header or sequence
+        is not a string or contains a line break, if a sequence is
+        empty, if *linelength* is not an integer (or
+        ``0``/``None``/``False``), if *append_to_fasta* is not a
+        boolean, or if *filename* cannot be opened for writing.
     """
 
     # This part of code means we can pass either a dictionary or a list of lists
@@ -586,14 +601,20 @@ def write_fasta(
         records = fasta_data.items()
 
     elif isinstance(fasta_data, list):
-        # quick validate
+        # quick validate: every element must be a [header, sequence] pair (a
+        # tuple is fine too). The type matters as well as the length - a bare
+        # two-character string would otherwise unpack into a one-character
+        # header and a one-character sequence and be written out as such.
         for i in fasta_data:
-            if len(i) != 2:
+            if not isinstance(i, (list, tuple)) or len(i) != 2:
                 raise ProtfastaException('While processing a list for write_fasta_file at least one of the elements was not a 2-position sublist:\n%s' % (str(i)))
         records = fasta_data  # type: ignore[assignment]
 
     else:
         raise ProtfastaException("keyword 'fasta_data' must be a dictionary of header:sequence pairs or a list of [header, sequence] pairs (got %s)" % (type(fasta_data).__name__))
+
+    if not isinstance(append_to_fasta, bool):
+        raise ProtfastaException("keyword 'append_to_fasta' must be a boolean")
 
     # override line length for sane input. Note the int() cast happens before
     # any numerical comparison so that a non-numerical linelength raises a
@@ -615,10 +636,23 @@ def write_fasta(
             linelength = 5
 
     # Validate every entry before touching the filesystem, so a bad entry
-    # never leaves a truncated file (or a half-appended one) behind.
+    # never leaves a truncated file (or a half-appended one) behind. Headers
+    # and sequences must be strings (anything else either crashes inside the
+    # formatting below or, worse, gets str()-ed into the file), sequences
+    # must be non-empty, and neither may contain a line break, which would be
+    # read back as a record boundary.
+    printable = _utilities._printable
     for header, seq in records:
-        if len(seq) < 1:
-            raise ProtfastaException('Sequence associated with [%s] is empty' % (header))
+        if not isinstance(header, str):
+            raise ProtfastaException('Header [%s] is not a string (got %s)' % (header, type(header).__name__))
+        if '\n' in header or '\r' in header:
+            raise ProtfastaException('Header [%s] contains a line break' % (printable(header)))
+        if not isinstance(seq, str):
+            raise ProtfastaException('Sequence associated with [%s] is not a string (got %s)' % (printable(header), type(seq).__name__))
+        if not seq:
+            raise ProtfastaException('Sequence associated with [%s] is empty' % (printable(header)))
+        if '\n' in seq or '\r' in seq:
+            raise ProtfastaException('Sequence associated with [%s] contains a line break' % (printable(header)))
 
     # If append_to_fasta is False the file is truncated/created; otherwise
     # new entries are added to the end of an existing file.

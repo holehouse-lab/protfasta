@@ -1,6 +1,10 @@
 [build-system]
 
-requires = ["setuptools>=61", "versioningit~=2.0"]
+# setuptools 77 is the first release to accept the SPDX string form of
+# `project.license` used below (the older table form is deprecated and slated
+# to become a build error); it also happens to be the first to require the
+# same Python floor as protfasta itself.
+requires = ["setuptools>=77", "versioningit~=2.0"]
 build-backend = "setuptools.build_meta"
 
 
@@ -12,9 +16,28 @@ description = "Lightweight package for reading and writing FASTA files."
 authors = [
     {name = "Alex Holehouse", email = "alex.holehouse@wustl.edu"}
 ]
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.9"
-readme = "README.md"  
+readme = "README.md"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+[project.urls]
+Documentation = "https://protfasta.readthedocs.io/"
+Source = "https://github.com/holehouse-lab/protfasta"
+Issues = "https://github.com/holehouse-lab/protfasta/issues"
 
 
 [project.optional-dependencies]

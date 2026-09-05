@@ -11,7 +11,7 @@ from __future__ import annotations
 import random
 import sys
 from os import path
-from typing import Callable, Optional, cast
+from typing import Callable, NoReturn, Optional, cast
 
 import protfasta
 import argparse
@@ -42,8 +42,8 @@ def stdout(msg: str, silent: bool) -> None:
 ####################################################################################################
 #
 #
-def exit_error(msg: str) -> None:
-    """Print a fatal-error message and terminate the process.
+def exit_error(msg: str) -> NoReturn:
+    """Print a fatal-error message and terminate the process with status 1.
 
     Parameters
     ----------
@@ -95,14 +95,15 @@ def validate_int(val: str, min_val: int, param_name: str) -> int:
     Returns
     -------
     int
-        The validated integer.
+        The validated integer.  If *val* is not an integer, or is below
+        *min_val*, the process exits via :func:`exit_error`.
     """
     try:
         val_i = int(val)
+    except (TypeError, ValueError):
+        exit_error('%s must be a numerical value >= %i' % (param_name, min_val))
 
-        if val_i < min_val:
-            raise Exception
-    except Exception:
+    if val_i < min_val:
         exit_error('%s must be a numerical value >= %i' % (param_name, min_val))
 
     return val_i
@@ -157,8 +158,8 @@ def main() -> None:
     # note nargs means EITHER 0 or 1 arguments are accepted
     parser.add_argument("filename", nargs='?', help='Input FASTA file')
 
-    parser.add_argument("-o", help="Output fasta file (is created)") 
-    parser.add_argument("--non-unique-header", help="", action='store_true') 
+    parser.add_argument("-o", help="Output fasta file (is created)")
+    parser.add_argument("--non-unique-header", help="Allow multiple records to share the same header. By default a duplicate\nheader is an error", action='store_true')
     parser.add_argument("--duplicate-record", help="How to deal with duplicate records in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = fail)") 
     parser.add_argument("--duplicate-sequence", help="How to deal with duplicate sequences in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = ignore)") 
     parser.add_argument("--invalid-sequence", help="How to deal with invalid (non-standard) residues in the file. Available options\nare shown below and described (default = fail)\n\nignore : skip invalid residues \nfail   : throw exception on invalid sequences \nremove : remove sequences with invalid characters \nconvert-all : Convert B->N, U->C, X->G, Z->Q, '*'->'', ' '->'',\n             '-'->'' (and throw exception if remaining invalid characters exist)\nconvert-res : same as convert-all except the alignment gap character '-' is\n             preserved and treated as valid (i.e. the file is read as an alignment)\nconvert-all-ignore - same as convert-all except invalid characters left over are ignored.\nconvert-res-ignore - same as convert-res except invalid characters left over are ignored.   \nconvert-all-remove - same as convert-all except sequences with invalid characters are removed.\nconvert-res-remove - same as convert-res except sequences with invalid characters are removed.   ")
@@ -180,8 +181,9 @@ def main() -> None:
         sys.exit(0)
 
     # this behavior phenocopies the default behavior if we did not allow --version to overide
+    # (argparse prefixes the message with the program name and 'error:' itself)
     if not args.filename:
-        parser.error("pfasta: error: the following arguments are required: filename")
+        parser.error("the following arguments are required: filename")
 
     
     if not silent:
@@ -246,13 +248,14 @@ def main() -> None:
     else:
         invalid_sequence = 'fail'
 
-    if args.number_lines:
+    # note we compare against None (rather than relying on truthiness) so that
+    # an explicitly-passed value of 0 is rejected/honoured rather than silently
+    # ignored
+    if args.number_lines is not None:
         number_of_lines = validate_int(args.number_lines, 5, '--number-lines')
     else:
         number_of_lines = 60
 
-    # note we compare against None (rather than relying on truthiness) so that
-    # an explicitly-passed value of 0 is honoured rather than silently ignored
     if args.shortest_seq is not None:
         shortest = validate_int(args.shortest_seq, 0, '--shortest-seq')
     else:
@@ -274,9 +277,11 @@ def main() -> None:
     else:
         random_subsample = None
 
+    # equal bounds are rejected too: a sequence would have to be both longer
+    # and shorter than the same length to survive, so nothing ever could
     if longest is not None and shortest is not None:
-        if longest < shortest:
-            exit_error('--longest-seq must be longer than --shortest-seq')
+        if longest <= shortest:
+            exit_error('--longest-seq must be larger than --shortest-seq')
 
     hp: Optional[Callable[[str], str]]
     if args.remove_comma_from_header:
@@ -314,27 +319,16 @@ def main() -> None:
 
 
 
-    # if length filters are requested
+    # if length filters are requested. Both bounds are exclusive: a sequence
+    # survives only if it is strictly shorter than --longest-seq and strictly
+    # longer than --shortest-seq
     if longest is not None:
-        stdout('[INFO]: Filtering out sequences longer than %s'%(longest),silent)
-        tmp = []
-        for i in data:
-            if len(i[1]) < longest:
-                tmp.append(i)
-        data = tmp
+        stdout('[INFO]: Filtering out sequences of %i residues or longer' % (longest), silent)
+        data = [i for i in data if len(i[1]) < longest]
 
     if shortest is not None:
-        stdout('[INFO]: Filtering out sequences shorter than %s'%(shortest), silent)
-        tmp = []
-        for i in data:
-            if len(i[1]) > shortest:
-                tmp.append(i)
-        data = tmp
-
-    if len(data) < 1:
-        stdout('[INFO]: 0 sequences remain after filtering',silent)
-        sys.exit(0)
-
+        stdout('[INFO]: Filtering out sequences of %i residues or shorter' % (shortest), silent)
+        data = [i for i in data if len(i[1]) > shortest]
 
     if random_subsample is not None:
         if len(data) < random_subsample:
@@ -343,7 +337,11 @@ def main() -> None:
             stdout('[INFO]: Subsampling %i sequences from the complete dataset (%i)'%(random_subsample, len(data)), silent)
         data = random.sample(data, min(random_subsample, len(data)))
 
-
+    # nothing left (the filters removed everything, or a subsample of 0 was
+    # requested): say so and stop rather than writing an empty file
+    if len(data) < 1:
+        stdout('[INFO]: 0 sequences remain after filtering', silent)
+        sys.exit(0)
 
     if print_stats and not silent:
         print_statistical_summary(data)

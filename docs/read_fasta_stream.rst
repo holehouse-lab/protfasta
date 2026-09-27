@@ -27,9 +27,11 @@ Because a lazily-produced result cannot be a dictionary, the
 read_fasta vs read_fasta_stream
 ................................
 
-The two functions share the same signature and apply the same
-sanitization steps in the same order. Choose between them based on the
-size of the file and the shape of result you need:
+The two functions take the same arguments (``read_fasta_stream`` adds
+one more, ``silence_warnings``, and uses different defaults for the
+duplicate checks - see below) and apply the same sanitization steps in
+the same order. Choose between them based on the size of the file and
+the shape of result you need:
 
     *  :func:`protfasta.read_fasta` loads the file and returns every
        record at once as a ``dict`` or ``list``. Use it whenever the
@@ -62,12 +64,17 @@ the whole file up front:
        ``(header, sequence)`` tuples; ``return_list=True`` yields
        ``[header, sequence]`` lists. There is no dictionary return type.
     *  **When errors are raised.** All *argument* validation is eager -
-       an invalid keyword combination raises immediately, before any
-       record is produced. *Data-dependent* failures, however, are
-       inherent to streaming and are raised **mid-iteration**, at the
-       offending record: a duplicate header, a duplicate record or
-       sequence under a ``'fail'`` action, or an invalid residue under
-       ``invalid_sequence_action='fail'`` / ``'convert'``.
+       an invalid keyword combination, a ``filename`` that does not
+       exist, or an ``output_filename`` that is the input file, raises
+       immediately, before any record is produced. *Data-dependent*
+       failures, however, are inherent to streaming and are raised
+       **mid-iteration**, at the offending record: a duplicate header, a
+       duplicate record or sequence under a ``'fail'`` action, an invalid
+       residue under ``invalid_sequence_action='fail'`` / ``'convert'``,
+       or a ``header_parser`` that raises on (or does not return a string
+       for) a header. Records yielded before the failure have already
+       been handed to you, and written to ``output_filename`` if one was
+       given.
     *  **verbose output.** Per-total summaries (for example, "removed 5
        of 100 duplicate records") can only be reported once the
        generator has been fully consumed, so they are emitted at
@@ -75,13 +82,22 @@ the whole file up front:
     *  **output_filename.** When provided, each sanitized record is
        teed to disk as it is yielded. The output file is therefore only
        complete once the generator has been fully consumed, and it must
-       differ from the input ``filename``.
+       be a different file from the input ``filename`` (opening it would
+       otherwise truncate the input before it had been read). The check
+       compares the files themselves rather than their paths, so a
+       symlink, a hard link or, on a case-insensitive filesystem such as
+       the macOS default, a differently-capitalised name for the input
+       is rejected too. The input is opened before the
+       output is created, so a problem opening the input never leaves an
+       empty output file behind. The output is byte-for-byte what
+       :func:`protfasta.write_fasta` would produce with its default
+       ``linelength``.
 
 
 Memory characteristics
 ......................
 
-**With the default arguments, ``read_fasta_stream`` is flat in memory.**
+With the default arguments, ``read_fasta_stream`` is **flat in memory**.
 Only one record is held at a time and no per-record bookkeeping is kept,
 so peak memory is independent of file size and files far larger than RAM
 stream without issue.
@@ -92,13 +108,21 @@ them adds auxiliary state that grows with the *number of records*:
 
     *  ``expect_unique_header=True`` keeps a running set of every header;
     *  ``duplicate_record_action`` set to ``'fail'`` or ``'remove'``
-       keeps a running header-to-sequence-digest map;
+       keeps a running set of 16-byte record digests. (When
+       ``expect_unique_header=True`` this check is skipped entirely,
+       since unique headers already rule out duplicate records.)
     *  ``duplicate_sequence_action`` set to ``'fail'`` or ``'remove'``
-       keeps a running set of sequence digests.
+       keeps a running set of 16-byte sequence digests (``'fail'`` also
+       keeps the first header seen for each sequence, so that its error
+       can name both records).
 
-Only 16-byte digests are stored - never whole sequences - so this is
-still far lighter than a full load, but on a file with hundreds of
-millions of records it can amount to hundreds of megabytes or more.
+No sequence is ever stored, only digests and (where noted) headers, so
+this is still far lighter than a full load: the benchmarks in the
+repository's ``benchmark/`` directory measure roughly 120 bytes per record
+for ``duplicate_sequence_action='remove'`` and 200 bytes per record for
+``expect_unique_header=True`` with UniProt-style headers, against about 800
+bytes per record for :func:`protfasta.read_fasta`. It does grow with the
+file, though - 1-2 GB per ten million records.
 Whenever one of these checks is enabled a one-time warning is emitted
 naming the responsible keyword(s); pass ``silence_warnings=True`` to
 suppress it. The check itself is always performed either way.
@@ -142,11 +166,19 @@ used to extract a UniProt accession from a structured header:
 
     def uniprot_id(header):
         # '>sp|P12345|NAME_HUMAN ...' -> 'P12345'
-        return header.split('|')[1]
+        return header.split('|')[1] if '|' in header else header
 
     for acc, seq in protfasta.read_fasta_stream('uniprot.fasta',
                                                 header_parser=uniprot_id):
         ...
+
+The fallback matters: the parser is smoke-tested with a plain string
+before the file is opened (see ``check_header_parser``), so a version
+that assumes a ``|`` is present would fail that test. The parser must
+also return a string for every header - returning ``None`` (from a
+regular expression that did not match, say) raises a
+``ProtfastaException`` naming the header rather than silently dropping
+the record.
 
 
 Sanitizing on the fly
@@ -172,7 +204,8 @@ Streaming filter + write
 .........................
 
 You can stream through an input file, keep only the records you care
-about, and write them out in bounded memory:
+about, and write them out, holding only the records you keep in memory
+rather than the whole file:
 
 .. code-block:: python
 

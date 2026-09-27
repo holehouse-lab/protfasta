@@ -12,7 +12,7 @@ protfasta
 
 
 
-## Release 0.1.23 (July 2026)
+## Release 0.1.24 (August 2026)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -22,6 +22,8 @@ protfasta - a robust parser for protein-based FASTA files.
 For all documentation see [https://protfasta.readthedocs.io/en/latest/](https://protfasta.readthedocs.io/en/latest/).
 
 For code see [https://github.com/holehouse-lab/protfasta](https://github.com/holehouse-lab/protfasta).
+
+If you want to change the package rather than use it, [ARCHITECTURE.md](ARCHITECTURE.md) walks through how a `read_fasta` and a `write_fasta` call move through the modules.
 
 ## Installation
 
@@ -76,54 +78,7 @@ For bug reports or errors please raise an issue on this github repository (see t
 
 ## Changelog
 
-* **0.1.23** (July 2026) - Bug fixes and more robust error handling.
-	* Fixed a crash when a FASTA file contained non-ASCII characters in a sequence. Duplicate detection hashes every sequence before invalid-residue handling runs, and the hashing step used an ASCII encoder, so any non-ASCII byte raised an unhandled `UnicodeEncodeError` instead of being reported (or removed/converted) as an invalid residue. This affected `read_fasta(...)` with its default options.
-	* All file-open failures now raise a `ProtfastaException`. Previously only a missing file was handled, so passing a directory or an unreadable file raised a raw `OSError`.
-	* `write_fasta(...)` now raises a `ProtfastaException` when handed something that is neither a dictionary nor a list (it previously raised an `UnboundLocalError`) and when `linelength` cannot be interpreted as an integer (it previously raised a `TypeError`). A numerical string such as `linelength='60'` is now accepted.
-	* `pathlib.Path` objects are now accepted anywhere a filename is expected, including the `output_filename` keyword, which previously required a string. Passing a non-path (such as an integer, which `open()` would have silently treated as a file descriptor) now raises a `ProtfastaException`.
-	* Three input-validation error messages named the wrong keyword (`invalid_sequence`) when reporting a bad `duplicate_record_action`, `duplicate_sequence_action`, or `invalid_sequence_action`.
-	* `pfasta` no longer ignores `--shortest-seq 0`, `--longest-seq 0`, and `--random-subsample 0`, which were silently dropped because zero is falsy. Also tidied up the `--help` text for the length filters and fixed some typos in the `--print-statistics` output.
-	* Added the `py.typed` marker file, which was declared in `pyproject.toml` but missing from the package, so the type annotations are now visible to type checkers.
-	* Raised the minimum supported Python version to 3.9. The previous floor of 3.7 had not been tested for some time - both are long past end-of-life.
-	* Extended the test matrix to cover Python 3.9 through 3.14, plus the Python 3.15 pre-release (which is allowed to fail without blocking the build). The full test suite passes on all of them.
-
-* **0.1.22** (July 2026) - Updated the Read the Docs build configuration.
-
-* **0.1.20 and 0.1.21** (July 2026) - Change defaults for `protfasta.read_fasta_stream(...)` 
-	* Previously the default options for `protfasta.read_fasta_stream(...)` led to a small O(N) memory growth due to duplicate record sanity checking. We have now changed the default behavior to not check for duplicates, ensuring `protfasta.read_fasta_stream(...)` is truly memory flat. We also include a warning if options are passed to `protfasta.read_fasta_stream(...)` that will not yeild a flat memory implementation. Note that even if this is the case, the memory footprint here remains much smaller than for the `read_fasta(...)` implementation.
-	* Update to readme (for 0.1.21)
-	
-* **0.1.19** (July 2026) - Streaming reads with full sanitization.
-  * New `protfasta.read_fasta_stream(...)` - a streaming counterpart to `read_fasta` with an identical signature. It returns a generator that yields `(header, sequence)` tuples (or `[header, sequence]` lists with `return_list=True`) one record at a time, applying the same sanitization pipeline as `read_fasta` (duplicate handling, invalid-residue handling, alignment support, custom header parsing). Peak memory stays bounded to roughly one record, so files larger than RAM can be processed in a single pass. Sanitized output can be teed to disk as it streams via `output_filename`.
-  * **Breaking change:** removed the public `protfasta.iter_fasta` generator that was introduced in 0.1.18. `read_fasta_stream` supersedes it - it provides the same streaming access plus the full sanitization pipeline. For the closest drop-in equivalent (streaming with no checks), use `read_fasta_stream(f, expect_unique_header=False, duplicate_record_action='ignore', invalid_sequence_action='ignore')`; or just `read_fasta_stream(f)` to additionally gain header-uniqueness, duplicate, and invalid-residue validation.
-  * Added a dedicated `read_fasta_stream` documentation page and worked examples, including guidance on when to use `read_fasta_stream` vs `read_fasta`.
-  * Test suite expanded with 21 new tests covering the streaming parser.
-
-* **0.1.18** (April 2026) - Performance overhaul for large FASTA files (hundreds of millions of sequences).
-  * `read_fasta` now streams the input file instead of reading it entirely into memory with `readlines()` — peak memory is now O(single record) rather than O(file size).
-  * New `protfasta.iter_fasta(filename, header_parser=None)` generator for memory-bounded streaming access to `(header, sequence)` pairs from files that don't fit in RAM.
-  * Core parser rewritten to use list-of-parts + `''.join()` instead of quadratic string concatenation, and to skip header-uniqueness tracking entirely when `expect_unique_header=False`.
-  * `convert_to_valid` / invalid-residue handling now uses a pre-built `str.translate` table (single C-level pass) instead of a chained `str.replace` loop — typically 5–20× faster.
-  * `check_sequence_is_valid` now uses frozenset membership instead of list-based `in` scans.
-  * Duplicate-detection utilities (`fail_on_duplicates`, `remove_duplicates`, `fail_on_duplicate_sequences`, `remove_duplicate_sequences`) now store 16-byte blake2b digests instead of full sequences in their lookup structures, dramatically reducing peak memory for files with long sequences.
-  * `write_fasta` replaced its per-residue `fh.write()` loop with chunked slice writes and opens the output with a 1 MiB buffer — roughly two orders of magnitude faster on large files.
-  * All existing behavior and the full test suite (239 tests) are preserved.
-
-* **0.1.16 - 0.1.17** - skipped...
-
-* **0.1.14**  and **0.1.15** (October 2024) - Re-wrote build chain and versioning to use `pyproject.toml` and [versioningit](https://pypi.org/project/versioningit/). protfasta should now support Python beyond 3.12. About bloody time. 
-  * Added `--version` flag to pfasta
-  * Messed around a bit with tags to ensure we had a tagged version compatible with them. 
-
-* **0.1.13** (January 2023) - Added upper limit of Python 3.11 to accomodate clash between versioneer and Python 3.12. Ultimately we'll move to versioningit for release versioning (as we have done internally) but need to make sure we have a robust protocol for this switch and then do this for ALL tools....
-
-* **0.1.12** (March 2023) - integrated in check_header_parser flag via pull request from the amazing [Friedlab](https://friedlab.com/) !
-* Added in `append_to_fasta` flag so you can append to an existing FASTA file (thanks Ryan!)
-
-* **0.1.11** (Sept 17th 2022) - re-wrote code for checking duplicate sequence to make it O(1) instead of O(n) for number of sequences (:-/) and added convert-remove option for invalid_sequences
-
-* **0.1.9** (Sept 12th 2021) - added in robustness for whitespace in sequence files, which, bizarrely, was not present (i.e. added as an invalid residue type but can now be converted).
-
+The full release history lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## Copyright
 

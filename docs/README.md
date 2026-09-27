@@ -1,18 +1,21 @@
 # Compiling protfasta's Documentation
 
-The docs for this project are built with [Sphinx](http://www.sphinx-doc.org/en/master/).
-To compile the docs, first ensure that Sphinx and the ReadTheDocs theme are installed.
-
+The docs for this project are built with [Sphinx](https://www.sphinx-doc.org/) using the Read the Docs theme, and are published at [protfasta.readthedocs.io](https://protfasta.readthedocs.io/). To build them locally, install the documentation requirements (which pull in Sphinx itself) from this directory:
 
 ```bash
-conda install sphinx sphinx_rtd_theme 
+pip install -r requirements.txt
 ```
 
+Then either use the `Makefile`:
 
-Once installed, you can use the `Makefile` in this directory to compile static HTML pages by
 ```bash
 make html
 ```
 
-The compiled docs will be in the `_build` directory and can be viewed by opening `index.html` (which may itself 
-be inside a directory called `html/` depending on what version of Sphinx is installed).
+or call Sphinx directly, which is what the Read the Docs build does:
+
+```bash
+python -m sphinx -b html . _build/html
+```
+
+Adding `-W` turns warnings into errors, which is a useful check before a release. The compiled pages end up in `_build/html`; open `_build/html/index.html` in a browser to view them. The API sections are generated from the docstrings in the `protfasta` package, and `conf.py` puts the repository root on the path, so the build documents the checked-out code rather than any installed copy.

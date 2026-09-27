@@ -1,4 +1,6 @@
 include LICENSE
+include CHANGELOG.md
+include ARCHITECTURE.md
 include MANIFEST.in
 
 graft protfasta

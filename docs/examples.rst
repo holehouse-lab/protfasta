@@ -92,10 +92,16 @@ Extract just the UniProt accession from a structured header such as
     import protfasta
 
     def get_accession(header):
-        return header.split('|')[1]
+        return header.split('|')[1] if '|' in header else header
 
     sequences = protfasta.read_fasta('uniprot.fasta',
                                      header_parser=get_accession)
+
+The ``if`` guard is there because the parser is smoke-tested with a
+plain string before the file is read (pass ``check_header_parser=False``
+to skip that). A parser must return a string for every header; returning
+``None`` raises a ``ProtfastaException`` naming the header rather than
+silently dropping the record.
 
 
 **Example 8 - Remove duplicate sequences and write directly to disk**
@@ -198,8 +204,9 @@ sequences as records flow past:
         ...
 
 Note that ``duplicate_sequence_action='remove'`` has to remember every
-sequence it has already seen, so it costs ``O(records)`` memory and
-``read_fasta_stream`` will warn you about that. Converting invalid
+sequence it has already seen (as a 16-byte digest, not the sequence
+itself), so it costs ``O(records)`` memory and ``read_fasta_stream`` will
+warn you about that. Converting invalid
 residues, by contrast, is a purely per-record decision and stays flat.
 Pass ``silence_warnings=True`` once you have made the trade-off
 knowingly.
@@ -255,6 +262,7 @@ generator for the output file to be complete:
 
     import protfasta
 
+    # sequence_in as in Example 14 or 15
     protfasta.write_fasta(sequence_in, 'example.fasta', linelength=None)
 
 
@@ -264,5 +272,6 @@ generator for the output file to be complete:
 
     import protfasta
 
+    # sequence_in as in Example 14 or 15
     protfasta.write_fasta(sequence_in, 'archive.fasta',
                           append_to_fasta=True)

@@ -7,7 +7,7 @@ A few principles run through the whole design and are worth stating up front:
 * **Everything that can go wrong raises `ProtfastaException`.** Bad arguments, a missing or unreadable file, a duplicate header, an invalid residue, an output path that cannot be created: one exception type, so callers only ever need one `except` clause. Argument problems are reported before any file is touched; data problems are reported once the file has been parsed.
 * **There is exactly one parser.** `read_fasta` and `read_fasta_stream` consume the same line-level engine, so the two can never disagree about what constitutes a record. Likewise there is exactly one record formatter, shared by `write_fasta` and the streaming tee.
 * **Records are `[header, sequence]` pairs, and stay that way until the very end.** Every sanitization step takes a list of these pairs and returns a list of these pairs. The dictionary that `read_fasta` returns by default is built in the final step, from whatever survived.
-* **Nothing is validated twice and nothing is copied that does not need to be.** Sanitization steps hand the same string objects along; the "remove" steps build new lists of existing entries, the "convert" step rewrites a sequence in place only if something actually changed, and duplicate detection works on 16-byte digests rather than the sequences themselves.
+* **Nothing is validated twice and nothing is copied that does not need to be.** Sanitization steps hand the same string objects along; the "remove" steps build new lists of existing entries, the "convert" step rewrites a sequence in place only if something actually changed, and duplicate detection keys its bookkeeping on the strings the dataset already holds rather than on copies.
 
 ## Layout
 
@@ -16,7 +16,7 @@ A few principles run through the whole design and are worth stating up front:
 | `protfasta/__init__.py` | The public API: `read_fasta`, `read_fasta_stream`, `write_fasta`, plus `ProtfastaException`, `STANDARD_AAS`, `STANDARD_CONVERSION` and `__version__`. `read_fasta` and `write_fasta` are defined here; they orchestrate, they do not parse. |
 | `protfasta/io.py` | Everything that touches a file or an argument list: the encoding policy, `check_filename` and `check_inputs`, the line-level parsing engine `_iter_fasta_lines`, the load-everything wrapper `_parse_fasta_all` / `internal_parse_fasta_file`, the record formatter `_format_record`, and the streaming engine `_stream_fasta`. |
 | `protfasta/protfasta.py` | The three workflow steps that `read_fasta` runs after parsing: `_deal_with_duplicate_records`, `_deal_with_duplicate_sequences` and `_deal_with_invalid_sequences`. Each one just dispatches on its action string to a utility function and handles the verbose printing. |
-| `protfasta/utilities.py` | The functions that do the actual work on a list of records: validation (`check_sequence_is_valid`, `fail_on_invalid_sequences`, `remove_invalid_sequences`), conversion (`_make_converter`, `convert_invalid_sequences`, `convert_to_valid`), duplicate handling (`fail_on_duplicates`, `remove_duplicates`, `fail_on_duplicate_sequences`, `remove_duplicate_sequences`), the digests behind it (`_seq_hash`, `_record_hash`) and `convert_list_to_dictionary`. |
+| `protfasta/utilities.py` | The functions that do the actual work on a list of records: validation (`check_sequence_is_valid`, `fail_on_invalid_sequences`, `remove_invalid_sequences`), conversion (`_make_converter`, `convert_invalid_sequences`, `convert_to_valid`), duplicate handling (`fail_on_duplicates`, `remove_duplicates`, `fail_on_duplicate_sequences`, `remove_duplicate_sequences`), the digests the streaming reader uses for the same job (`_seq_hash`, `_record_hash`) and `convert_list_to_dictionary`. |
 | `protfasta/_configs.py` | The constants: the 20-letter alphabet, the alphabet with the gap character, the built-in conversion tables, and the pre-built `str.translate` / `bytes.translate` tables derived from them at import time. |
 | `protfasta/protfasta_exceptions.py` | `ProtfastaException`. |
 | `protfasta/scripts/pfasta.py` | The `pfasta` command-line tool, a thin client of `read_fasta` and `write_fasta`. |
@@ -33,7 +33,7 @@ Inside the package a parsed file is a `list[list[str]]`: one two-element list `[
 
 The pairs are lists rather than tuples for one reason: residue conversion rewrites `entry[1]` in place, so a converted dataset reuses the same pair objects and the unconverted majority of sequences are never copied. Everything else treats the pairs as read-only and builds new lists of existing entries when it needs to drop some.
 
-Duplicate detection never stores a sequence. Each sequence is reduced to a 16-byte blake2b digest (`_seq_hash`), and each record to a single digest of header, a NUL separator and sequence (`_record_hash`), so the bookkeeping for a file with ten million records is a few hundred megabytes of small `bytes` objects rather than a second copy of the file. Collisions at that digest length are not a practical concern.
+Duplicate detection never copies a sequence. In `read_fasta` every sequence is already in memory, so the duplicate stages compare the strings themselves: their bookkeeping is a set or dictionary of references to strings the dataset owns, each string is hashed once by Python's own string hash (which the string then caches), and the comparison is exact. The streaming reader cannot do that, because it does not keep the records it has already yielded, so there each sequence is reduced to a 16-byte blake2b digest (`_seq_hash`) and each record to a single digest of the header's length, the header and the sequence (`_record_hash`); the length prefix is what keeps the header/sequence split unambiguous, since a header can contain any character, NUL included. Collisions at that digest length are not a practical concern.
 
 ## Anatomy of a `read_fasta` call
 
@@ -84,11 +84,11 @@ Peak memory at the end of this stage is the parsed result itself, roughly 800 by
 
 ### 3. Duplicate records
 
-A duplicate record is a repeat of the same header **and** the same sequence. `_deal_with_duplicate_records` dispatches to `fail_on_duplicates` or `remove_duplicates`, both of which walk the list computing `_record_hash` for each entry against a running set of digests. `read_fasta` skips this stage entirely when `expect_unique_header=True`, because unique headers already make a duplicate record impossible and the pass would only hash every sequence to find nothing. With the default arguments, then, this stage costs nothing.
+A duplicate record is a repeat of the same header **and** the same sequence. `_deal_with_duplicate_records` dispatches to `fail_on_duplicates` or `remove_duplicates`, both of which walk the list noting each record in a dictionary keyed by header (`_seen_record`). The value is the first sequence seen under that header, promoted to a set of sequences only if the header turns up again with a different one, so on typical data only headers are hashed and a repeated header costs one string comparison. `read_fasta` skips this stage entirely when `expect_unique_header=True`, because unique headers already make a duplicate record impossible and the pass would only look at every record to find nothing. With the default arguments, then, this stage costs nothing.
 
 ### 4. Duplicate sequences
 
-`_deal_with_duplicate_sequences` is the same shape one level down: `fail_on_duplicate_sequences` keeps a dictionary from `_seq_hash` digest to the first header seen (so its error can name both records), and `remove_duplicate_sequences` keeps just a set of digests and builds a new list of the first occurrence of each sequence. The default action is `'ignore'`, so by default nothing happens here either.
+`_deal_with_duplicate_sequences` is the same shape one level down: `fail_on_duplicate_sequences` keeps a dictionary from each sequence to the first header seen with it (so its error can name both records), and `remove_duplicate_sequences` keeps just a set of the sequences and builds a new list of the first occurrence of each. The default action is `'ignore'`, so by default nothing happens here either.
 
 ### 5. Invalid residues
 
@@ -126,9 +126,12 @@ write_fasta(fasta_data, filename, linelength=60, append_to_fasta=False)   [__ini
   |-- normalise the container:  dict -> .items(),  list -> check each element is a pair
   |-- normalise linelength:     None/False/<1 -> single line,  1..4 -> 5,  else int()
   |-- validate every record:    header is a str with no line break,
-  |                             sequence is a non-empty str with no line break
+  |                             sequence is a str with no line break that is not
+  |                             empty or all whitespace
   |
-  |-- _open_output(filename, append)      utf-8, surrogateescape, 1 MiB buffer   [io.py]
+  |-- _open_output(filename, append)      utf-8, surrogateescape, 1 MiB buffer,  [io.py]
+  |                                        line break first if appending to an
+  |                                        unterminated file
   '-- for each record:  fh.write(_format_record(header, seq, linelength))       [io.py]
 ```
 
@@ -140,17 +143,17 @@ A dictionary is treated as `header -> sequence` and iterated through `.items()`.
 
 ### 2. Validating before touching the filesystem
 
-Every record is checked before the output file is opened: the header must be a string without a line break, the sequence must be a non-empty string without a line break. A line break inside either would be read back as a record boundary, silently corrupting the file, and a non-string sequence would either crash inside the formatter or be `str()`-ed into the file. Doing this pass first is what makes the function atomic in practice: a bad entry three million records in raises without creating, truncating or partially appending to `filename`.
+Every record is checked before the output file is opened: the header must be a string without a line break, and the sequence must be a string without a line break that contains something other than whitespace. A line break inside either would be read back as a record boundary, silently corrupting the file; a blank sequence would be read back as a header with no sequence, which the parser skips, so the record would vanish; and a non-string sequence would either crash inside the formatter or be `str()`-ed into the file. Doing this pass first is what makes the function atomic in practice: a bad entry three million records in raises without creating, truncating or partially appending to `filename`.
 
 ### 3. Writing
 
-`_open_output` opens the file for writing (or appending) as UTF-8 with `surrogateescape`, so headers that arrived from a non-UTF-8 file via `read_fasta` go back out with their original bytes, and with a 1 MiB buffer so that very large outputs do not pay a system call per record. Every `OSError` becomes a `ProtfastaException`.
+`_open_output` opens the file for writing (or appending) as UTF-8 with `surrogateescape`, so headers that arrived from a non-UTF-8 file via `read_fasta` go back out with their original bytes, and with a 1 MiB buffer so that very large outputs do not pay a system call per record. Every `OSError` becomes a `ProtfastaException`. When appending, it first looks at the last byte of the existing file (`_ends_without_line_break`) and writes a line break if the file's last line is unterminated; otherwise the first appended header would be glued onto the end of the file's last sequence and read back as sequence data.
 
 Each record is then rendered by `_format_record`: the header line, the sequence sliced into `linelength` chunks joined by newlines, and a blank separator line, assembled into one string and emitted with a single `write` call. The output for a record is therefore `>header\n` followed by the wrapped sequence and an empty line. The streaming reader's `output_filename` tee calls the same function, so a file written while streaming is identical to one written by `write_fasta` afterwards.
 
 ## Where the streaming reader differs
 
-`read_fasta_stream` exists for files that do not fit in memory, and it is built from the same parts. It runs the same `check_filename` and `check_inputs` up front (plus an eager existence check on the input, and a check that `output_filename` is not the same file as the input, resolving symlinks), then returns the generator `_stream_fasta`. That generator opens the input through `_open_fasta`, opens the output through `_open_output` only afterwards (so a missing input never leaves an empty output file behind), and pulls records from `_iter_fasta_lines` one at a time, applying the same steps in the same order per record: header uniqueness against a running set, duplicate records against a set of `_record_hash` digests, duplicate sequences against `_seq_hash` digests, then the invalid-residue action using `check_sequence_is_valid` and a converter built once by `_make_converter`. Surviving records are tee'd to the output file with `_format_record` and yielded as `(header, sequence)` tuples, or `[header, sequence]` lists with `return_list=True`.
+`read_fasta_stream` exists for files that do not fit in memory, and it is built from the same parts. It runs the same `check_filename` and `check_inputs` up front (plus an eager existence check on the input, and a check that `output_filename` is not the same file as the input; `_same_file` compares device and inode rather than paths, so a symlink, a hard link or a differently-capitalised name on a case-insensitive filesystem is caught, and the output never truncates the input it is about to read), then returns the generator `_stream_fasta`. That generator opens the input through `_open_fasta`, opens the output through `_open_output` only afterwards (so a missing input never leaves an empty output file behind), and pulls records from `_iter_fasta_lines` one at a time, applying the same steps in the same order per record: header uniqueness against a running set, duplicate records against a set of `_record_hash` digests, duplicate sequences against `_seq_hash` digests, then the invalid-residue action using `check_sequence_is_valid` and a converter built once by `_make_converter`. Surviving records are tee'd to the output file with `_format_record` and yielded as `(header, sequence)` tuples, or `[header, sequence]` lists with `return_list=True`.
 
 Two consequences follow from streaming. Data-dependent errors are raised mid-iteration, at the offending record, because there is no earlier moment at which they could be known. And the per-record bookkeeping is the only thing that grows with the file, which is why the streaming defaults turn the header-uniqueness and duplicate-record checks off and why a one-time warning is emitted when a caller turns any of them back on. The batch tricks of the load-everything path are not used here; a batch would have to be buffered before any of its records could be yielded, which would move the point at which an error surfaces.
 

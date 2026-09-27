@@ -131,7 +131,11 @@ def _open_output(filename: PathLike, append: bool = False) -> IO[str]:
 
     append : bool, optional
         If ``True`` open in append mode, otherwise truncate/create.
-        Default ``False``.
+        When appending to an existing file whose last line has no line
+        break, one is written first, so that the first appended header
+        starts a line of its own rather than being glued onto the end of
+        the file's last sequence (where it would be read back as sequence
+        data, silently merging two records).  Default ``False``.
 
     Returns
     -------
@@ -143,10 +147,76 @@ def _open_output(filename: PathLike, append: bool = False) -> IO[str]:
     ProtfastaException
         If the file cannot be opened (missing directory, permissions, ...).
     """
+    needs_line_break = append and _ends_without_line_break(filename)
     try:
-        return open(filename, 'a' if append else 'w', buffering=_WRITE_BUFFER, encoding=_WRITE_ENCODING, errors=_ENCODING_ERRORS)
+        fh = open(filename, 'a' if append else 'w', buffering=_WRITE_BUFFER, encoding=_WRITE_ENCODING, errors=_ENCODING_ERRORS)
     except OSError as e:
         raise ProtfastaException('Unable to open file for writing: %s\nException: %s' % (filename, e))
+
+    if needs_line_break:
+        fh.write('\n')
+    return fh
+
+
+####################################################################################################
+#
+#
+def _ends_without_line_break(filename: PathLike) -> bool:
+    """Return ``True`` if *filename* is a non-empty file whose last byte is not a line break.
+
+    Only regular files are examined (reading a named pipe, say, would block),
+    and any error while looking is treated as "no", leaving the subsequent
+    open to report anything that is really wrong.
+
+    Parameters
+    ----------
+    filename : str or os.PathLike
+        The file about to be appended to.
+
+    Returns
+    -------
+    bool
+        Whether a line break must be written before appending.
+    """
+    try:
+        if not os.path.isfile(filename):
+            return False
+        with open(filename, 'rb') as fh:
+            if fh.seek(0, os.SEEK_END) == 0:
+                return False
+            fh.seek(-1, os.SEEK_END)
+            return fh.read(1) not in (b'\n', b'\r')
+    except OSError:
+        return False
+
+
+####################################################################################################
+#
+#
+def _same_file(path_a: PathLike, path_b: PathLike) -> bool:
+    """Return ``True`` if two paths refer to the same file on disk.
+
+    Comparing the paths themselves - even fully resolved ones - is not
+    enough: on a case-insensitive filesystem (the macOS and Windows
+    defaults) ``Data.fasta`` and ``data.fasta`` are the same file, and a
+    hard link gives one file two unrelated names.  This compares the files
+    (device and inode) instead, and treats a path that does not exist as
+    different from everything, since it cannot be an existing file.
+
+    Parameters
+    ----------
+    path_a, path_b : str or os.PathLike
+        The two paths.
+
+    Returns
+    -------
+    bool
+        Whether both paths name the same existing file.
+    """
+    try:
+        return os.path.samefile(path_a, path_b)
+    except OSError:
+        return False
 
 
 ####################################################################################################
@@ -448,10 +518,13 @@ def _parse_fasta_all(
     # file makes the cyclic garbage collector run thousands of times to scan
     # objects that cannot possibly be part of a cycle - about 20% of the
     # parse time at ten million records. The loop below is bounded and
-    # creates no cycles, so the collector is paused for its duration and
-    # restored (to whatever state it was in) on the way out, exceptions
-    # included. The streaming parser does not do this, because user code
-    # runs between its yields.
+    # creates no cycles of its own, so the collector is paused for its
+    # duration and restored (to whatever state it was in) on the way out,
+    # exceptions included. (A header_parser runs inside the loop, but any
+    # cyclic garbage it did create would simply wait for the next
+    # collection after the parse rather than being lost.) The streaming
+    # parser does not do this, because arbitrary amounts of user code run
+    # between its yields.
     gc_was_enabled = gc.isenabled()
     gc.disable()
     try:
@@ -719,9 +792,11 @@ def _stream_fasta(
     seen_headers: Optional[set[str]] = set() if expect_unique_header else None
 
     # duplicate records: a set of 16-byte digests of (header, sequence).
-    # When headers are required to be unique a duplicate record (same
-    # header AND sequence) is impossible - the header check fires first -
-    # so the record check would only ever hash every sequence for nothing.
+    # (Unlike read_fasta, the stream cannot compare records directly, since
+    # it does not keep the records it has already yielded.) When headers are
+    # required to be unique a duplicate record (same header AND sequence) is
+    # impossible - the header check fires first - so the record check would
+    # only ever hash every sequence for nothing.
     seen_records: Optional[set[bytes]] = (
         set() if (duplicate_record_action in ('fail', 'remove') and not expect_unique_header) else None
     )

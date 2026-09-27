@@ -69,6 +69,29 @@ string for) a real header - is raised as a ``ProtfastaException``, so
 callers only need to catch one exception type.
 
 
+How the file is parsed
+.......................
+
+The same rules apply to :func:`protfasta.read_fasta` and
+:func:`protfasta.read_fasta_stream`, which share a single parser:
+
+    *  A line whose first character is ``>`` starts a new record; the
+       rest of that line (after ``header_parser``, if given) is the
+       header. A ``>`` anywhere else - including after leading
+       whitespace - is treated as sequence data.
+    *  All following lines up to the next header are the sequence. They
+       are concatenated, so sequences may be wrapped at any width, and
+       the result is upper-cased.
+    *  Trailing whitespace is stripped from every line, and blank or
+       whitespace-only lines are skipped. Whitespace *inside* a sequence
+       line is kept, and is then an invalid residue like any other
+       (spaces are removed by the conversion table below; tabs are not).
+    *  Unix (``\n``), Windows (``\r\n``) and old Mac (``\r``) line
+       endings are all accepted.
+    *  Anything before the first header is ignored, and a header with no
+       sequence lines after it is skipped.
+
+
 Header parsing
 ...............
 
@@ -123,7 +146,8 @@ its values strings, and multi-character keys are allowed):
     *  ``Z`` -> ``Q``
     *  ``*`` -> ``''`` (removed)
     *  ``-`` -> ``''`` (removed; preserved if ``alignment=True``)
-    *  ``' '`` -> ``''`` (whitespace removed)
+    *  ``' '`` -> ``''`` (spaces removed; other whitespace, such as a
+       tab, is not in the table)
 
 
 Large files

@@ -9,6 +9,8 @@ set of read modes is timed:
                              (unique headers enforced, invalid residues fail).
 * ``read_fasta-nocheck``   - ``read_fasta`` with every check disabled, i.e.
                              raw parse cost plus building the result.
+* ``read_fasta-dedup``     - ``read_fasta(duplicate_sequence_action='remove')``
+                             on top of the default checks.
 * ``stream``               - ``protfasta.read_fasta_stream`` with default
                              options, fully consumed. This is the flat-memory
                              configuration.
@@ -62,7 +64,7 @@ REPO_ROOT = os.path.dirname(HERE)
 sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, HERE)
 
-MODES: list[str] = ['read_fasta', 'read_fasta-nocheck', 'stream', 'stream-unique', 'stream-dedup']
+MODES: list[str] = ['read_fasta', 'read_fasta-nocheck', 'read_fasta-dedup', 'stream', 'stream-unique', 'stream-dedup']
 DEFAULT_SIZES: list[int] = [10_000, 100_000, 1_000_000, 10_000_000]
 
 
@@ -104,6 +106,12 @@ def _run_mode(mode: str, filename: str) -> dict[str, Any]:
                                                duplicate_record_action='ignore',
                                                duplicate_sequence_action='ignore',
                                                invalid_sequence_action='ignore'))
+        seconds = time.perf_counter() - t0
+        n_records = len(data)
+        n_residues = sum(map(len, data.values()))
+
+    elif mode == 'read_fasta-dedup':
+        data = cast(dict, protfasta.read_fasta(filename, duplicate_sequence_action='remove'))
         seconds = time.perf_counter() - t0
         n_records = len(data)
         n_residues = sum(map(len, data.values()))

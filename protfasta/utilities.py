@@ -39,8 +39,12 @@ from ._configs import (
 def _seq_hash(seq: str) -> bytes:
     """Return a 16-byte blake2b digest of *seq* for cheap duplicate lookup.
 
-    Used by duplicate-detection utilities so the lookup structure stores
-    128-bit digests instead of whole (potentially very long) sequences.
+    Used by the streaming duplicate checks in :func:`io._stream_fasta`, which
+    must remember every sequence they have seen without keeping the
+    sequences themselves (that would defeat the point of streaming).  The
+    load-everything path does not need it: there every sequence is already
+    in memory, so :func:`fail_on_duplicate_sequences` and
+    :func:`remove_duplicate_sequences` compare the strings directly.
     Collision probability for 10**8 sequences is ~10**-22.
 
     Note that sequences are encoded as UTF-8 rather than ASCII.  Duplicate
@@ -70,13 +74,20 @@ def _seq_hash(seq: str) -> bytes:
 def _record_hash(header: str, seq: str) -> bytes:
     """Return a 16-byte blake2b digest identifying a (header, sequence) record.
 
-    Duplicate *record* detection needs a key that combines the header and
-    the sequence, so that a header seen with several different sequences
-    is still caught if any one of those sequences is later repeated.  The
-    header and sequence are fed through a single hash with a NUL separator
-    (a header can never contain one, since it is a single line of text
-    with trailing whitespace stripped) so the cost is one pass over the
-    record, the same as :func:`_seq_hash`.
+    Used by the streaming duplicate-record check in
+    :func:`io._stream_fasta` (the load-everything path compares records
+    directly; see :func:`fail_on_duplicates`).  The key has to combine the
+    header and the sequence, so that a header seen with several different
+    sequences is still caught if any one of those sequences is later
+    repeated, and the two are fed through a single hash so the cost is one
+    pass over the record, the same as :func:`_seq_hash`.
+
+    The encoded header is preceded by its length.  Without that the split
+    between header and sequence would be ambiguous whatever separator was
+    used, because a header can contain any character a file can hold -
+    with a NUL separator, for instance, the records ``('A\\0', 'B')`` and
+    ``('A', '\\0B')`` hashed identically and one of them was discarded as a
+    duplicate of the other.
 
     Parameters
     ----------
@@ -91,9 +102,9 @@ def _record_hash(header: str, seq: str) -> bytes:
     bytes
         A 16-byte digest unique to the (header, sequence) pair.
     """
-    h = hashlib.blake2b(digest_size=16)
-    h.update(header.encode('utf-8', 'surrogatepass'))
-    h.update(b'\0')
+    header_bytes = header.encode('utf-8', 'surrogatepass')
+    h = hashlib.blake2b(len(header_bytes).to_bytes(8, 'little'), digest_size=16)
+    h.update(header_bytes)
     h.update(seq.encode('utf-8', 'surrogatepass'))
     return h.digest()
 
@@ -663,6 +674,57 @@ def convert_list_to_dictionary(
 ####################################################################################################
 #
 #
+def _seen_record(seen: dict[str, Union[str, set[str]]], header: str, seq: str) -> bool:
+    """Note the record ``(header, seq)`` in *seen*, reporting whether it was already there.
+
+    This is the bookkeeping behind :func:`fail_on_duplicates` and
+    :func:`remove_duplicates`.  Every sequence is already in memory on this
+    path, so records are compared directly - exactly, with no digests - and
+    the bookkeeping only ever holds references to strings the dataset
+    already owns.
+
+    *seen* is keyed by header.  Its value is the first sequence seen under
+    that header, and only if the header turns up again with a *different*
+    sequence is the value promoted to a set of every sequence seen under it.
+    On typical data, where a header recurs rarely if at all, that means one
+    dictionary entry per header, only the header is ever hashed, and a
+    repeated header is checked with a single string comparison.
+
+    Parameters
+    ----------
+    seen : dict[str, str or set[str]]
+        Bookkeeping built up by previous calls; updated in place.
+
+    header : str
+        The record header.
+
+    seq : str
+        The record sequence.
+
+    Returns
+    -------
+    bool
+        ``True`` if this exact record has been seen before, otherwise
+        ``False`` (in which case it has now been noted).
+    """
+    prior = seen.get(header)
+    if prior is None:
+        seen[header] = seq
+        return False
+    if isinstance(prior, str):
+        if prior == seq:
+            return True
+        seen[header] = {prior, seq}
+        return False
+    if seq in prior:
+        return True
+    prior.add(seq)
+    return False
+
+
+####################################################################################################
+#
+#
 def fail_on_duplicates(dataset: list[list[str]]) -> None:
     """Raise if any exact duplicate record exists in *dataset*.
 
@@ -670,7 +732,8 @@ def fail_on_duplicates(dataset: list[list[str]]) -> None:
     **and** the same sequence.  Entries that share a header but have
     different sequences are *not* considered duplicates -- and, crucially,
     a header that appears with several different sequences must still be
-    caught if any one of those sequences is later repeated.
+    caught if any one of those sequences is later repeated.  Records are
+    compared exactly (see :func:`_seen_record`).
 
     Parameters
     ----------
@@ -682,15 +745,10 @@ def fail_on_duplicates(dataset: list[list[str]]) -> None:
     ProtfastaException
         On the first duplicate record found.
     """
-    # Each record is reduced to a single 16-byte digest of its header and
-    # sequence, so the bookkeeping is one small bytes object per record
-    # regardless of how long the sequences are.
-    seen: set[bytes] = set()
+    seen: dict[str, Union[str, set[str]]] = {}
     for entry in dataset:
-        key = _record_hash(entry[0], entry[1])
-        if key in seen:
+        if _seen_record(seen, entry[0], entry[1]):
             raise ProtfastaException('Found duplicate entries of the following record\n:>%s\n%s' % (_printable(entry[0]), _printable(entry[1])))
-        seen.add(key)
 
 
 ####################################################################################################
@@ -701,7 +759,8 @@ def remove_duplicates(dataset: list[list[str]]) -> list[list[str]]:
 
     A duplicate record is defined as two entries with the same header
     **and** the same sequence.  Entries that share a header but have
-    different sequences are *not* considered duplicates.
+    different sequences are *not* considered duplicates.  Records are
+    compared exactly (see :func:`_seen_record`).
 
     Parameters
     ----------
@@ -713,19 +772,8 @@ def remove_duplicates(dataset: list[list[str]]) -> list[list[str]]:
     list[list[str]]
         De-duplicated list, preserving original order.
     """
-    # One 16-byte record digest per entry (see fail_on_duplicates) rather
-    # than a per-header set of sequence digests -- roughly a quarter of the
-    # memory on files with hundreds of millions of records.
-    seen: set[bytes] = set()
-    updated: list[list[str]] = []
-
-    for entry in dataset:
-        key = _record_hash(entry[0], entry[1])
-        if key not in seen:
-            seen.add(key)
-            updated.append(entry)
-
-    return updated
+    seen: dict[str, Union[str, set[str]]] = {}
+    return [entry for entry in dataset if not _seen_record(seen, entry[0], entry[1])]
 
 
 ####################################################################################################
@@ -733,6 +781,10 @@ def remove_duplicates(dataset: list[list[str]]) -> list[list[str]]:
 #
 def fail_on_duplicate_sequences(dataset: list[list[str]]) -> None:
     """Raise if any two entries share the same sequence.
+
+    Sequences are compared exactly, by keying a dictionary on the sequence
+    strings the dataset already holds (so no sequence is copied, and each
+    one is hashed once, by Python's own string hash).
 
     Parameters
     ----------
@@ -744,14 +796,14 @@ def fail_on_duplicate_sequences(dataset: list[list[str]]) -> None:
     ProtfastaException
         On the first pair of entries that share a sequence.
     """
-    # Key by a 16-byte digest rather than the full sequence for memory
-    # efficiency on large files.
-    seq_to_header: dict[bytes, str] = {}
+    # sequence -> the first header it was seen under, so the error can name
+    # both records
+    first_header: dict[str, str] = {}
     for entry in dataset:
-        digest = _seq_hash(entry[1])
-        if digest in seq_to_header:
-            raise ProtfastaException('Found duplicate sequences associated with the following headers\n1. %s\n\n2. %s' % (_printable(seq_to_header[digest]), _printable(entry[0])))
-        seq_to_header[digest] = entry[0]
+        seq = entry[1]
+        if seq in first_header:
+            raise ProtfastaException('Found duplicate sequences associated with the following headers\n1. %s\n\n2. %s' % (_printable(first_header[seq]), _printable(entry[0])))
+        first_header[seq] = entry[0]
 
 
 ####################################################################################################
@@ -759,6 +811,9 @@ def fail_on_duplicate_sequences(dataset: list[list[str]]) -> None:
 #
 def remove_duplicate_sequences(dataset: list[list[str]]) -> list[list[str]]:
     """Remove entries with duplicate sequences, keeping the first occurrence.
+
+    Sequences are compared exactly, through a set of the sequence strings
+    the dataset already holds (so no sequence is copied).
 
     Parameters
     ----------
@@ -770,15 +825,14 @@ def remove_duplicate_sequences(dataset: list[list[str]]) -> list[list[str]]:
     list[list[str]]
         Filtered list with unique sequences, preserving original order.
     """
-    # Track seen sequences by their 16-byte digests to keep peak memory
-    # low for files with long sequences.
-    lookup: set[bytes] = set()
+    seen: set[str] = set()
+    add = seen.add
     updated: list[list[str]] = []
 
     for entry in dataset:
-        digest = _seq_hash(entry[1])
-        if digest in lookup:
+        seq = entry[1]
+        if seq in seen:
             continue
-        lookup.add(digest)
+        add(seq)
         updated.append(entry)
     return updated

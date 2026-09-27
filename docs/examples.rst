@@ -204,8 +204,9 @@ sequences as records flow past:
         ...
 
 Note that ``duplicate_sequence_action='remove'`` has to remember every
-sequence it has already seen, so it costs ``O(records)`` memory and
-``read_fasta_stream`` will warn you about that. Converting invalid
+sequence it has already seen (as a 16-byte digest, not the sequence
+itself), so it costs ``O(records)`` memory and ``read_fasta_stream`` will
+warn you about that. Converting invalid
 residues, by contrast, is a purely per-record decision and stays flat.
 Pass ``silence_warnings=True`` once you have made the trade-off
 knowingly.
@@ -261,6 +262,7 @@ generator for the output file to be complete:
 
     import protfasta
 
+    # sequence_in as in Example 14 or 15
     protfasta.write_fasta(sequence_in, 'example.fasta', linelength=None)
 
 
@@ -270,5 +272,6 @@ generator for the output file to be complete:
 
     import protfasta
 
+    # sequence_in as in Example 14 or 15
     protfasta.write_fasta(sequence_in, 'archive.fasta',
                           append_to_fasta=True)

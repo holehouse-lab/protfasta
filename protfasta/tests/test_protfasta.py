@@ -471,6 +471,50 @@ class TestDuplicateUtilities:
         assert _utilities._record_hash('AB', 'CD') != _utilities._record_hash('A', 'BCD')
         assert _utilities._record_hash('h', 'ACD') == _utilities._record_hash('h', 'ACD')
 
+    def test_record_hash_unambiguous_when_header_contains_nul(self):
+        # Regression: the header and sequence used to be joined with a NUL
+        # separator, so ('A\0', 'B') and ('A', '\0B') hashed identically
+        assert _utilities._record_hash('A\x00', 'B') != _utilities._record_hash('A', '\x00B')
+
+    def test_nul_records_are_not_duplicates(self, tmp_path):
+        f = tmp_path / 'nul.fasta'
+        f.write_bytes(b'>A\x00\nB\n>A\n\x00B\n')
+        kwargs = dict(expect_unique_header=False, duplicate_record_action='remove',
+                      invalid_sequence_action='ignore', return_list=True)
+        assert len(protfasta.read_fasta(str(f), **kwargs)) == 2
+        assert len(list(protfasta.read_fasta_stream(str(f), silence_warnings=True, **kwargs))) == 2
+
+    def test_duplicates_compared_by_value_not_identity(self):
+        # equal strings held in distinct objects are still duplicates
+        a, b = 'ACDE', ''.join(['AC', 'DE'])
+        assert a == b and a is not b
+        assert len(_utilities.remove_duplicates([['h', a], ['h', b]])) == 1
+        assert len(_utilities.remove_duplicate_sequences([['h1', a], ['h2', b]])) == 1
+        with pytest.raises(ProtfastaException):
+            _utilities.fail_on_duplicates([['h', a], ['h', b]])
+        with pytest.raises(ProtfastaException):
+            _utilities.fail_on_duplicate_sequences([['h1', a], ['h2', b]])
+
+    def test_remove_duplicates_header_with_many_sequences(self):
+        # a header seen with three different sequences, each then repeated,
+        # exercises the promotion from a single sequence to a set
+        data = [['h', 'A'], ['h', 'C'], ['h', 'D'], ['h', 'C'], ['h', 'D'], ['h', 'A'], ['h', 'E']]
+        assert _utilities.remove_duplicates(data) == [['h', 'A'], ['h', 'C'], ['h', 'D'], ['h', 'E']]
+        with pytest.raises(ProtfastaException, match='\n:>h\nC'):
+            _utilities.fail_on_duplicates(data)
+
+    def test_remove_functions_return_the_original_entries(self):
+        data = [['h1', 'ACDE'], ['h1', 'ACDE'], ['h2', 'FGHI']]
+        kept = _utilities.remove_duplicates(data)
+        assert kept[0] is data[0] and kept[1] is data[2]
+        kept = _utilities.remove_duplicate_sequences(data)
+        assert kept[0] is data[0] and kept[1] is data[2]
+
+    def test_fail_on_duplicate_sequences_with_empty_first_header(self):
+        # an empty (falsy) header must still be reported as the first record
+        with pytest.raises(ProtfastaException, match=r'1\. \n\n2\. h2'):
+            _utilities.fail_on_duplicate_sequences([['', 'ACDE'], ['h2', 'ACDE']])
+
     def test_remove_duplicates(self):
         data = [['h1', 'ACDEF'], ['h1', 'ACDEF'], ['h2', 'GHIKL']]
         result = _utilities.remove_duplicates(data)
@@ -1366,6 +1410,50 @@ class TestWriteFasta:
         assert readback['added_sequence'] == 'ASPAPSPAPSPAPSPAS'
         for k in original:
             assert readback[k] == original[k]
+
+    def test_append_to_file_without_trailing_line_break(self, tmp_path):
+        # Regression: the new header used to be glued onto the last
+        # sequence line, merging the appended record into the previous one
+        outfile = tmp_path / 'noeol.fasta'
+        outfile.write_bytes(b'>h1\nACDEF')
+        protfasta.write_fasta({'h2': 'GHIKL'}, outfile, append_to_fasta=True)
+        assert outfile.read_bytes() == b'>h1\nACDEF\n>h2\nGHIKL\n\n'
+        assert protfasta.read_fasta(outfile) == {'h1': 'ACDEF', 'h2': 'GHIKL'}
+
+    @pytest.mark.parametrize('ending', [b'\n', b'\r', b'\r\n', b'\n\n'])
+    def test_append_to_terminated_file_adds_no_line_break(self, tmp_path, ending):
+        outfile = tmp_path / 'eol.fasta'
+        outfile.write_bytes(b'>h1\nACDEF' + ending)
+        protfasta.write_fasta({'h2': 'GHIKL'}, outfile, append_to_fasta=True)
+        assert outfile.read_bytes() == b'>h1\nACDEF' + ending + b'>h2\nGHIKL\n\n'
+
+    def test_append_to_empty_file_adds_no_line_break(self, tmp_path):
+        outfile = tmp_path / 'empty.fasta'
+        outfile.write_bytes(b'')
+        protfasta.write_fasta({'h1': 'ACDEF'}, outfile, append_to_fasta=True)
+        assert outfile.read_bytes() == b'>h1\nACDEF\n\n'
+
+    def test_ends_without_line_break_helper(self, tmp_path):
+        f = tmp_path / 'f.fasta'
+        assert _io._ends_without_line_break(f) is False  # missing
+        assert _io._ends_without_line_break(tmp_path) is False  # a directory
+        for content, expected in [(b'', False), (b'A', True), (b'A\n', False), (b'A\r', False), (b'A ', True)]:
+            f.write_bytes(content)
+            assert _io._ends_without_line_break(f) is expected, content
+
+    def test_whitespace_only_sequence_raises(self, tmp_path):
+        # Regression: a blank sequence was written, and then vanished when the
+        # file was read back because the reader skips blank lines
+        outfile = tmp_path / 'ws.fasta'
+        for blank in (' ', '   ', '\t', ' \t '):
+            with pytest.raises(ProtfastaException, match='is empty'):
+                protfasta.write_fasta([['h1', 'ACD'], ['h2', blank]], outfile)
+        assert not outfile.exists()
+
+    def test_sequence_with_whitespace_and_residues_is_written(self, tmp_path):
+        outfile = tmp_path / 'ws.fasta'
+        protfasta.write_fasta([['h1', ' ACD']], outfile)
+        assert outfile.read_text() == '>h1\n ACD\n\n'
 
     def test_append_to_nonexistent_creates(self, tmp_path):
         outfile = str(tmp_path / 'new.fasta')
@@ -2473,6 +2561,42 @@ class TestStreamRobustness:
             pytest.skip('symlinks not supported here')
         with pytest.raises(ProtfastaException, match='must differ'):
             protfasta.read_fasta_stream(SIMPLE_FILE, output_filename=link)
+
+    def test_hard_linked_output_same_as_input_raises(self, tmp_path):
+        # Regression: a hard link has a different real path, so the old
+        # path comparison let the stream truncate its own input to zero bytes
+        src = tmp_path / 'in.fasta'
+        src.write_bytes(Path(SIMPLE_FILE).read_bytes())
+        link = tmp_path / 'hard.fasta'
+        try:
+            os.link(src, link)
+        except (OSError, NotImplementedError):
+            pytest.skip('hard links not supported here')
+        with pytest.raises(ProtfastaException, match='must differ'):
+            protfasta.read_fasta_stream(str(src), output_filename=link)
+        assert src.read_bytes() == Path(SIMPLE_FILE).read_bytes()
+
+    def test_case_variant_output_same_as_input_raises(self, tmp_path):
+        # On a case-insensitive filesystem (the macOS and Windows default)
+        # 'Data.fasta' and 'data.fasta' are the same file
+        src = tmp_path / 'Data.fasta'
+        src.write_bytes(Path(SIMPLE_FILE).read_bytes())
+        variant = tmp_path / 'data.fasta'
+        if not variant.exists():
+            pytest.skip('filesystem is case-sensitive')
+        with pytest.raises(ProtfastaException, match='must differ'):
+            protfasta.read_fasta_stream(str(src), output_filename=variant)
+        assert src.read_bytes() == Path(SIMPLE_FILE).read_bytes()
+
+    def test_same_file_helper(self, tmp_path):
+        a = tmp_path / 'a.fasta'
+        b = tmp_path / 'b.fasta'
+        a.write_text('>h\nA\n')
+        b.write_text('>h\nA\n')
+        assert _io._same_file(a, a)
+        assert _io._same_file(a, tmp_path / '.' / 'a.fasta')
+        assert not _io._same_file(a, b)  # identical content, different file
+        assert not _io._same_file(a, tmp_path / 'missing.fasta')
 
     def test_tee_output_identical_to_write_fasta(self, tmp_path):
         a = tmp_path / 'stream.fasta'

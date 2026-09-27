@@ -343,7 +343,8 @@ def read_fasta_stream(
 
     The *duplicate/uniqueness checks* are still available, but each needs to
     remember what it has already seen, so enabling one adds ``O(records)``
-    auxiliary state (hundreds of MB or more on very large files):
+    auxiliary state - roughly 120 to 200 bytes per record, or 1-2 GB per
+    ten million records:
 
     * ``expect_unique_header=True`` keeps a running set of every header;
     * ``duplicate_record_action`` in ``('fail', 'remove')`` keeps a
@@ -377,7 +378,7 @@ def read_fasta_stream(
         Path to the FASTA file to read.
 
     expect_unique_header : bool, optional
-        As in :func:`read_fasta`, but **defaults to ``False`` here** so that
+        As in :func:`read_fasta`, but the default here is ``False``, so that
         streaming is flat in memory by default.  When ``True`` a running set
         of seen headers is kept (``O(records)`` memory), and the default
         ``duplicate_record_action='ignore'`` is promoted to ``'fail'`` (unique
@@ -393,10 +394,12 @@ def read_fasta_stream(
     duplicate_sequence_action : str, optional
         As in :func:`read_fasta`.  The ``'fail'`` and ``'remove'``
         variants keep a running set of 16-byte sequence digests (never
-        whole sequences), i.e. ``O(records)`` memory.  Default ``'ignore'``.
+        whole sequences), i.e. ``O(records)`` memory; ``'fail'`` also keeps
+        the first header seen with each sequence, so that its error can
+        name both records.  Default ``'ignore'``.
 
     duplicate_record_action : str, optional
-        As in :func:`read_fasta`, but **defaults to ``'ignore'`` here** so
+        As in :func:`read_fasta`, but the default here is ``'ignore'``, so
         that streaming is flat in memory by default.  The ``'fail'`` and
         ``'remove'`` variants keep a running set of 16-byte record
         digests (``O(records)`` memory).  Default ``'ignore'``.
@@ -418,7 +421,10 @@ def read_fasta_stream(
         If provided, each sanitized record is written to this path as it
         is yielded (60 residues per line, as in :func:`write_fasta`).
         The file is only complete once the generator has been fully
-        consumed.  Must differ from *filename*.
+        consumed.  Must be a different file from *filename*; the check
+        compares the files themselves, so a symlink, a hard link or (on a
+        case-insensitive filesystem) a differently-capitalised name for
+        the input is rejected too.
 
     correction_dictionary : dict or None, optional
         As in :func:`read_fasta`.  Default ``None``.
@@ -485,12 +491,14 @@ def read_fasta_stream(
     if not os.path.exists(filename):
         raise ProtfastaException('Unable to find file: %s' % (filename))
 
-    # Streaming-specific guard: reading and simultaneously overwriting the
-    # same file would corrupt the input mid-stream.  read_fasta is immune
-    # because it reads the whole file before writing, but streaming is not.
-    # realpath (rather than abspath) so a symlink to the input is caught too.
+    # Streaming-specific guard: opening the output truncates it, so if it is
+    # the input the input is wiped before a single record has been read.
+    # read_fasta is immune because it reads the whole file before writing,
+    # but streaming is not. The files themselves are compared rather than
+    # their paths, so a symlink, a hard link or (on a case-insensitive
+    # filesystem) a differently-capitalised name is caught too.
     if output_filename is not None:
-        if os.path.realpath(output_filename) == os.path.realpath(filename):
+        if _io._same_file(output_filename, filename):
             raise ProtfastaException("keyword 'output_filename' must differ from 'filename' when streaming")
 
     # Warn (once, eagerly) if a memory-growing check is enabled, so the caller
@@ -549,11 +557,12 @@ def write_fasta(
     The data is validated in full **before** the file is opened, so a bad
     entry raises without creating, truncating, or appending to
     *filename*.  Every header and sequence must be a string, every
-    sequence must be non-empty, and neither may contain a line break (a
-    break inside either would be read back as a record boundary, silently
-    corrupting the file).  Output is written as UTF-8; headers that came
-    from a non-UTF-8 file via :func:`read_fasta` are written back out
-    with their original bytes.
+    sequence must contain something other than whitespace (an empty or
+    blank sequence would vanish when the file is read back), and neither
+    may contain a line break (a break inside either would be read back as
+    a record boundary, silently corrupting the file).  Output is written
+    as UTF-8; headers that came from a non-UTF-8 file via
+    :func:`read_fasta` are written back out with their original bytes.
 
     Parameters
     ----------
@@ -575,7 +584,9 @@ def write_fasta(
 
     append_to_fasta : bool, optional
         If ``True``, new entries are appended to *filename* if it
-        already exists; otherwise the file is created.  If ``False``
+        already exists; otherwise the file is created.  If the existing
+        file does not end with a line break one is added first, so the
+        new records never run into its last line.  If ``False``
         (default), any existing file is overwritten.
 
     Returns
@@ -588,7 +599,7 @@ def write_fasta(
         If *fasta_data* is neither a dictionary nor a list, if a list
         element is not a two-item list or tuple, if a header or sequence
         is not a string or contains a line break, if a sequence is
-        empty, if *linelength* is not an integer (or
+        empty or only whitespace, if *linelength* is not an integer (or
         ``0``/``None``/``False``), if *append_to_fasta* is not a
         boolean, or if *filename* cannot be opened for writing.
     """
@@ -639,8 +650,12 @@ def write_fasta(
     # never leaves a truncated file (or a half-appended one) behind. Headers
     # and sequences must be strings (anything else either crashes inside the
     # formatting below or, worse, gets str()-ed into the file), sequences
-    # must be non-empty, and neither may contain a line break, which would be
-    # read back as a record boundary.
+    # must contain something other than whitespace (the reader skips blank
+    # lines, so a blank sequence would leave a header with no sequence, and
+    # the record would vanish on the way back in), and neither may contain a
+    # line break, which would be read back as a record boundary. isspace()
+    # stops at the first non-whitespace character, so on a real sequence it
+    # costs nothing.
     printable = _utilities._printable
     for header, seq in records:
         if not isinstance(header, str):
@@ -649,8 +664,8 @@ def write_fasta(
             raise ProtfastaException('Header [%s] contains a line break' % (printable(header)))
         if not isinstance(seq, str):
             raise ProtfastaException('Sequence associated with [%s] is not a string (got %s)' % (printable(header), type(seq).__name__))
-        if not seq:
-            raise ProtfastaException('Sequence associated with [%s] is empty' % (printable(header)))
+        if not seq or seq.isspace():
+            raise ProtfastaException('Sequence associated with [%s] is empty (or only whitespace)' % (printable(header)))
         if '\n' in seq or '\r' in seq:
             raise ProtfastaException('Sequence associated with [%s] contains a line break' % (printable(header)))
 

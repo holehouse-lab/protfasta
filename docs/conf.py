@@ -23,7 +23,7 @@ import protfasta
 # -- Project information -----------------------------------------------------
 
 project = 'protfasta'
-copyright = ("2020-2026, Alex Holehouse (Holehouse lab - http://holehouse.wustl.edu) ")
+copyright = ("2020-2026, Alex Holehouse (Holehouse lab - https://www.holehouselab.com) ")
 author = 'Alex S. Holehouse'
 
 # The full version, including alpha/beta/rc tags, taken from the installed
@@ -172,5 +172,11 @@ texinfo_documents = [
 
 
 # -- Extension configuration -------------------------------------------------
+
+# Resolve references such as :class:`pathlib.Path` and :class:`os.PathLike`
+# to the Python documentation.
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+}
 
 

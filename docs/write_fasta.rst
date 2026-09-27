@@ -10,6 +10,42 @@ sequence data as either:
 It is also possible to have :func:`protfasta.read_fasta` write its
 sanitized result directly to disk via the ``output_filename`` keyword,
 which simply calls ``write_fasta`` internally.
+:func:`protfasta.read_fasta_stream` accepts ``output_filename`` too, and
+writes each record in exactly the same format as it is yielded.
+
+``write_fasta`` writes what it is given: it does not sanitize, convert or
+de-duplicate anything, and sequences are written as they are (they are
+not upper-cased).
+
+
+Output format
+..............
+
+Each record is written as a ``>`` header line, the sequence wrapped at
+``linelength`` residues per line, and a blank line separating it from the
+next record. For example,
+
+.. code-block:: python
+
+    protfasta.write_fasta({'seq1': 'MEEPQSDPSVEPPLSQETFSDLWKLL',
+                           'seq2': 'DEAPRMPEAAPPVAPA'},
+                          'example.fasta', linelength=10)
+
+writes
+
+.. code-block:: none
+
+    >seq1
+    MEEPQSDPSV
+    EPPLSQETFS
+    DLWKLL
+
+    >seq2
+    DEAPRMPEAA
+    PPVAPA
+
+Records are written in the order of the list, or the insertion order of
+the dictionary.
 
 
 Keyword arguments
@@ -27,7 +63,9 @@ Keyword arguments
 
     *  ``append_to_fasta`` (default ``False``) - when ``True``, new
        entries are appended to an existing file rather than
-       overwriting it. Must be a boolean.
+       overwriting it. If the existing file's last line has no line
+       break, one is added first so the new records never run into it.
+       Must be a boolean.
 
 
 Error handling
@@ -42,7 +80,9 @@ lower-level error escape, so a single ``except`` clause is enough:
     *  A header or sequence is not a string.
     *  A header or sequence contains a line break, which would be read
        back as a record boundary and silently corrupt the file.
-    *  A sequence is empty - empty records are never silently written.
+    *  A sequence is empty or consists only of whitespace - such a
+       record would vanish when the file is read back, so it is never
+       written.
     *  ``linelength`` cannot be interpreted as an integer. Note that a
        numerical string (``'60'``) *is* accepted and cast.
     *  ``append_to_fasta`` is not a boolean.

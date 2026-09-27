@@ -32,6 +32,7 @@ Modes:
 |---|---|
 | `read_fasta` | `protfasta.read_fasta(f)` with default options: unique headers enforced, duplicate records fail, invalid residues fail. Returns a dictionary. |
 | `read_fasta-nocheck` | `read_fasta` with every check disabled - the raw cost of parsing plus building the result. |
+| `read_fasta-dedup` | `read_fasta(f, duplicate_sequence_action='remove')` - the default checks plus duplicate-sequence removal. |
 | `stream` | `protfasta.read_fasta_stream(f)` with default options, fully consumed. This is the flat-memory configuration. |
 | `stream-unique` | `read_fasta_stream(f, expect_unique_header=True)` - keeps a running set of every header. |
 | `stream-dedup` | `read_fasta_stream(f, duplicate_sequence_action='remove')` - keeps a running set of 16-byte sequence digests. |
@@ -46,38 +47,42 @@ Apple M3 Max, macOS 26.5, Python 3.12.13, protfasta 0.1.24 (September 2026). `re
 - Apple M3 Max
 - Python 3.12.13
 - macOS-26.5.1-arm64-arm-64bit
-- 2026-09-04T22:53:05
+- 2026-09-26T21:36:40
 - repeats: 2
 
 | records | file size | mode | time | records/s | MB/s | peak memory | bytes/record |
 |---|---|---|---|---|---|---|---|
-| 10,000 | 5 MB | `read_fasta` | 0.02 s | 595,235 | 310 | 8 MB | 842 |
-| 10,000 | 5 MB | `read_fasta-nocheck` | 0.01 s | 740,903 | 386 | 8 MB | 763 |
-| 10,000 | 5 MB | `stream` | 0.02 s | 563,166 | 294 | 0 MB | 18 |
-| 10,000 | 5 MB | `stream-unique` | 0.02 s | 546,147 | 285 | 2 MB | 216 |
-| 10,000 | 5 MB | `stream-dedup` | 0.03 s | 399,144 | 208 | 1 MB | 127 |
-| 100,000 | 52 MB | `read_fasta` | 0.18 s | 557,413 | 292 | 82 MB | 819 |
-| 100,000 | 52 MB | `read_fasta-nocheck` | 0.14 s | 700,100 | 366 | 81 MB | 810 |
-| 100,000 | 52 MB | `stream` | 0.17 s | 583,351 | 305 | 0 MB | 2 |
-| 100,000 | 52 MB | `stream-unique` | 0.19 s | 539,615 | 282 | 21 MB | 214 |
-| 100,000 | 52 MB | `stream-dedup` | 0.26 s | 387,431 | 203 | 14 MB | 135 |
-| 1,000,000 | 527 MB | `read_fasta` | 1.92 s | 520,689 | 274 | 812 MB | 812 |
-| 1,000,000 | 527 MB | `read_fasta-nocheck` | 1.50 s | 666,695 | 351 | 798 MB | 797 |
-| 1,000,000 | 527 MB | `stream` | 1.71 s | 583,292 | 307 | 0 MB | 0 |
-| 1,000,000 | 527 MB | `stream-unique` | 1.92 s | 521,713 | 275 | 211 MB | 210 |
-| 1,000,000 | 527 MB | `stream-dedup` | 2.61 s | 383,243 | 202 | 130 MB | 130 |
-| 10,000,000 | 5.30 GB | `read_fasta` | 21.03 s | 475,461 | 252 | 7.93 GB | 793 |
-| 10,000,000 | 5.30 GB | `read_fasta-nocheck` | 17.04 s | 586,975 | 311 | 7.84 GB | 783 |
-| 10,000,000 | 5.30 GB | `stream` | 17.52 s | 570,869 | 302 | 0 MB | 0 |
-| 10,000,000 | 5.30 GB | `stream-unique` | 20.42 s | 489,655 | 259 | 1.99 GB | 198 |
-| 10,000,000 | 5.30 GB | `stream-dedup` | 27.27 s | 366,645 | 194 | 1.18 GB | 117 |
+| 10,000 | 5 MB | `read_fasta` | 0.02 s | 541,742 | 282 | 8 MB | 825 |
+| 10,000 | 5 MB | `read_fasta-nocheck` | 0.01 s | 680,876 | 355 | 8 MB | 753 |
+| 10,000 | 5 MB | `read_fasta-dedup` | 0.02 s | 511,471 | 267 | 8 MB | 802 |
+| 10,000 | 5 MB | `stream` | 0.02 s | 558,168 | 291 | 0 MB | 0 |
+| 10,000 | 5 MB | `stream-unique` | 0.02 s | 519,988 | 271 | 2 MB | 190 |
+| 10,000 | 5 MB | `stream-dedup` | 0.03 s | 380,745 | 199 | 1 MB | 111 |
+| 100,000 | 52 MB | `read_fasta` | 0.19 s | 516,710 | 270 | 82 MB | 817 |
+| 100,000 | 52 MB | `read_fasta-nocheck` | 0.15 s | 658,979 | 345 | 81 MB | 807 |
+| 100,000 | 52 MB | `read_fasta-dedup` | 0.22 s | 460,688 | 241 | 83 MB | 826 |
+| 100,000 | 52 MB | `stream` | 0.18 s | 563,932 | 295 | 0 MB | 0 |
+| 100,000 | 52 MB | `stream-unique` | 0.20 s | 507,419 | 266 | 21 MB | 210 |
+| 100,000 | 52 MB | `stream-dedup` | 0.27 s | 375,596 | 197 | 13 MB | 132 |
+| 1,000,000 | 527 MB | `read_fasta` | 1.97 s | 506,356 | 267 | 814 MB | 813 |
+| 1,000,000 | 527 MB | `read_fasta-nocheck` | 1.56 s | 640,946 | 338 | 796 MB | 795 |
+| 1,000,000 | 527 MB | `read_fasta-dedup` | 2.22 s | 449,694 | 237 | 831 MB | 831 |
+| 1,000,000 | 527 MB | `stream` | 1.75 s | 570,925 | 301 | 0 MB | 0 |
+| 1,000,000 | 527 MB | `stream-unique` | 2.01 s | 496,503 | 261 | 211 MB | 210 |
+| 1,000,000 | 527 MB | `stream-dedup` | 2.71 s | 368,673 | 194 | 130 MB | 129 |
+| 10,000,000 | 5.30 GB | `read_fasta` | 20.90 s | 478,397 | 253 | 7.93 GB | 793 |
+| 10,000,000 | 5.30 GB | `read_fasta-nocheck` | 17.00 s | 588,118 | 312 | 7.84 GB | 783 |
+| 10,000,000 | 5.30 GB | `read_fasta-dedup` | 23.19 s | 431,185 | 228 | 8.03 GB | 802 |
+| 10,000,000 | 5.30 GB | `stream` | 17.47 s | 572,473 | 303 | 0 MB | 0 |
+| 10,000,000 | 5.30 GB | `stream-unique` | 19.84 s | 504,063 | 267 | 1.99 GB | 198 |
+| 10,000,000 | 5.30 GB | `stream-dedup` | 26.61 s | 375,833 | 199 | 1.18 GB | 117 |
 
 Takeaways:
 
 * **Parsing runs at roughly 250-300 MB/s, or 450,000-600,000 records/s**, in pure Python, and scales linearly. A 100,000-record proteome (~50 MB) loads in under a fifth of a second; a million records in ~2 seconds; ten million (5.3 GB) in 17-18 seconds streamed or 21 seconds fully loaded.
 * **`read_fasta` memory is ~800 bytes per record**, i.e. about 1.5x the size of the file on disk. Ten million records need ~8 GB. If that is a problem, `read_fasta_stream` does the same parse in constant memory: it never rose above the measurement floor at any size.
 * **The opt-in streaming checks cost ~120 bytes/record** (`duplicate_sequence_action='remove'`, a set of 16-byte digests) **to ~200 bytes/record** (`expect_unique_header=True`, which has to keep every header string). That is still 4-7x lighter than a full load, but it does grow with the file - which is why they are off by default when streaming.
-* The default `read_fasta` checks (header uniqueness and invalid-residue validation) are cheap relative to parsing: about 25% on top of the no-check parse.
+* The default `read_fasta` checks (header uniqueness and invalid-residue validation) are cheap relative to parsing: about 25% on top of the no-check parse. Removing duplicate sequences as well costs another ~10% and almost no memory, because `read_fasta` compares the sequence strings it already holds; the streaming equivalent (`stream-dedup`) has to hash every sequence, since it does not keep them, and pays about 50%.
 * Both `read_fasta` and `read_fasta_stream` start paying off at exactly the file sizes you would hope: there is no per-file overhead worth mentioning, so 10,000 records take 20 ms.
 
 ## Notes and caveats

@@ -234,6 +234,7 @@ def check_inputs(
     output_filename: Optional[PathLike],
     verbose: bool,
     correction_dictionary: Optional[dict[str, str]],
+    empty_sequence_action: str = 'fail',
 ) -> None:
     """Validate the arguments shared by :func:`read_fasta` and :func:`read_fasta_stream`.
 
@@ -293,6 +294,13 @@ def check_inputs(
         conversion table when provided.  Keys must be non-empty strings
         and values must be strings.
 
+    empty_sequence_action : str, optional
+        How to handle a header with no sequence after it.  Must be one
+        of ``'ignore'``, ``'fail'``, or ``'remove'``.  ``'ignore'``
+        cannot be combined with *output_filename*, because a record with
+        an empty sequence cannot be written to a FASTA file (and would
+        vanish when the file was read back).  Default ``'fail'``.
+
     Raises
     ------
     ProtfastaException
@@ -334,6 +342,16 @@ def check_inputs(
     # check the invalid_sequence_action
     if invalid_sequence_action not in ['ignore', 'fail', 'remove', 'convert', 'convert-ignore', 'convert-remove']:
         raise ProtfastaException("keyword 'invalid_sequence_action' must be one of 'ignore','fail','remove','convert','convert-ignore', 'convert-remove'")
+
+    # check the empty_sequence_action
+    if empty_sequence_action not in ['ignore', 'fail', 'remove']:
+        raise ProtfastaException("keyword 'empty_sequence_action' must be one of 'ignore','fail','remove'")
+
+    # an empty sequence cannot be written out (write_fasta rejects it, and the
+    # record would vanish on re-reading), so catch this pairing up front rather
+    # than after the whole file has been parsed
+    if empty_sequence_action == 'ignore' and output_filename is not None:
+        raise ProtfastaException("Cannot combine empty_sequence_action='ignore' with output_filename: records with no sequence cannot be written to a FASTA file")
 
     # check the return_list
     if not isinstance(return_list, bool):
@@ -384,8 +402,10 @@ def _iter_fasta_lines(
     lines.  Trailing whitespace is stripped from every line, blank lines
     are skipped, and anything before the first header is ignored.
 
-    A header that is not followed by any sequence data is silently
-    skipped, matching the behaviour protfasta has always had.
+    A header that is not followed by any sequence data is yielded with
+    an empty sequence (``''``).  The parser itself never drops a record;
+    the callers decide what to do with empty ones via
+    ``empty_sequence_action`` (see :func:`_keep_empty_record`).
 
     Parameters
     ----------
@@ -403,7 +423,8 @@ def _iter_fasta_lines(
     ------
     tuple[str, str]
         ``(header, sequence)`` pairs in file order.  Sequences are
-        upper-cased and concatenated from any multi-line runs.
+        upper-cased and concatenated from any multi-line runs; a header
+        with no sequence lines after it gives an empty sequence.
 
     Raises
     ------
@@ -429,9 +450,10 @@ def _iter_fasta_lines(
             continue
 
         if line[0] == '>':
-            # Flush the previous record, but only if we accumulated at
-            # least one sequence line.
-            if header is not None and seq_parts:
+            # Flush the previous record. A header with no sequence lines
+            # is yielded with an empty sequence rather than dropped, so
+            # that the caller can report it (empty_sequence_action).
+            if header is not None:
                 yield (header, ''.join(seq_parts).upper())
 
             # Start the new record.
@@ -454,9 +476,45 @@ def _iter_fasta_lines(
         else:
             seq_parts.append(line)
 
-    # Flush the final record.
-    if header is not None and seq_parts:
+    # Flush the final record (again, even if it has no sequence lines).
+    if header is not None:
         yield (header, ''.join(seq_parts).upper())
+
+
+####################################################################################################
+#
+#
+def _keep_empty_record(header: str, empty_sequence_action: str) -> bool:
+    """Decide what happens to a record whose header has no sequence after it.
+
+    Shared by the load-it-all path (:func:`_parse_fasta_all`) and the
+    streaming path (:func:`_stream_fasta`) so the two always treat empty
+    records the same way.  It is only called for records whose sequence
+    is the empty string.
+
+    Parameters
+    ----------
+    header : str
+        The header of the empty record (used in the error message).
+
+    empty_sequence_action : str
+        One of ``'fail'``, ``'remove'`` or ``'ignore'``.
+
+    Returns
+    -------
+    bool
+        ``True`` if the record should be kept (``'ignore'``), ``False``
+        if it should be dropped (``'remove'``).
+
+    Raises
+    ------
+    ProtfastaException
+        If *empty_sequence_action* is ``'fail'``.
+    """
+    if empty_sequence_action == 'fail':
+        raise ProtfastaException("Found a header with no sequence after it (%s). Pass empty_sequence_action='remove' to skip such records, or 'ignore' to keep them with an empty sequence" % (_utilities._printable(header)))
+
+    return empty_sequence_action == 'ignore'
 
 
 ####################################################################################################
@@ -467,6 +525,7 @@ def _parse_fasta_all(
     expect_unique_header: bool = True,
     header_parser: Optional[Callable[[str], str]] = None,
     verbose: bool = False,
+    empty_sequence_action: str = 'fail',
 ) -> list[list[str]]:
     """Parse FASTA content into a list of ``[header, sequence]`` pairs.
 
@@ -495,6 +554,13 @@ def _parse_fasta_all(
     verbose : bool, optional
         If ``True``, prints the number of recovered sequences to stdout.
 
+    empty_sequence_action : str, optional
+        What to do with a header that has no sequence after it:
+        ``'fail'`` (default) raises, ``'remove'`` drops the record and
+        ``'ignore'`` keeps it with an empty sequence.  Empty records are
+        dealt with before the header-uniqueness check, so a removed
+        record never counts towards a duplicate header.
+
     Returns
     -------
     list[list[str]]
@@ -504,10 +570,12 @@ def _parse_fasta_all(
     ------
     ProtfastaException
         If *expect_unique_header* is ``True`` and a duplicate header is
-        found.
+        found, or if *empty_sequence_action* is ``'fail'`` and a header
+        has no sequence.
     """
 
     return_data: list[list[str]] = []
+    n_empty_removed = 0
 
     # Only allocate a header-tracking set when we actually need it; the set
     # holds references to the header strings already in return_data, so it
@@ -529,6 +597,11 @@ def _parse_fasta_all(
     gc.disable()
     try:
         for header, seq in _iter_fasta_lines(content, header_parser):
+            # a header with no sequence after it (raises under 'fail')
+            if not seq and not _keep_empty_record(header, empty_sequence_action):
+                n_empty_removed += 1
+                continue
+
             if seen_headers is not None:
                 if header in seen_headers:
                     raise ProtfastaException('Found duplicate header (%s)' % (_utilities._printable(header)))
@@ -539,6 +612,8 @@ def _parse_fasta_all(
             gc.enable()
 
     if verbose:
+        if empty_sequence_action == 'remove':
+            print('[INFO]: Removed %i records with no sequence' % (n_empty_removed))
         print('[INFO]: Parsed file to recover %i sequences' % (len(return_data)))
 
     return return_data
@@ -552,6 +627,7 @@ def internal_parse_fasta_file(
     expect_unique_header: bool = True,
     header_parser: Optional[Callable[[str], str]] = None,
     verbose: bool = False,
+    empty_sequence_action: str = 'fail',
 ) -> list[list[str]]:
     """Low-level FASTA file parser.
 
@@ -582,6 +658,10 @@ def internal_parse_fasta_file(
         If ``True``, informational messages are printed to stdout
         during parsing.
 
+    empty_sequence_action : str, optional
+        What to do with a header that has no sequence after it; see
+        :func:`_parse_fasta_all`.  Default ``'fail'``.
+
     Returns
     -------
     list[list[str]]
@@ -591,8 +671,9 @@ def internal_parse_fasta_file(
     Raises
     ------
     ProtfastaException
-        If the file cannot be opened or a duplicate header is detected
-        (when *expect_unique_header* is ``True``).
+        If the file cannot be opened, a duplicate header is detected
+        (when *expect_unique_header* is ``True``), or a header has no
+        sequence (when *empty_sequence_action* is ``'fail'``).
     """
 
     fh = _open_fasta(filename)
@@ -604,7 +685,8 @@ def internal_parse_fasta_file(
         return _parse_fasta_all(fh,
                                 expect_unique_header=expect_unique_header,
                                 header_parser=header_parser,
-                                verbose=verbose)
+                                verbose=verbose,
+                                empty_sequence_action=empty_sequence_action)
 
 
 ####################################################################################################
@@ -617,9 +699,10 @@ def _iter_fasta(
     """Yield raw ``(header, sequence)`` pairs from a FASTA file, streaming.
 
     A convenience wrapper that opens *filename* and hands it to
-    :func:`_iter_fasta_lines`.  No duplicate detection, invalid-residue
-    handling, or alignment-gap logic is performed -- each record is
-    yielded exactly as parsed.  The public streaming entry point,
+    :func:`_iter_fasta_lines`.  No duplicate detection, empty-record
+    handling, invalid-residue handling, or alignment-gap logic is
+    performed -- each record is yielded exactly as parsed (so a header
+    with no sequence gives an empty sequence).  The public streaming entry point,
     :func:`protfasta.read_fasta_stream`, layers that sanitization on top.
 
     Parameters
@@ -698,6 +781,7 @@ def _stream_fasta(
     output_filename: Optional[PathLike] = None,
     correction_dictionary: Optional[dict[str, str]] = None,
     verbose: bool = False,
+    empty_sequence_action: str = 'fail',
 ) -> Iterator[Union[tuple[str, str], list[str]]]:
     """Stream a FASTA file record-by-record with full sanitization.
 
@@ -709,11 +793,12 @@ def _stream_fasta(
 
     The processing order matches :func:`protfasta.read_fasta`:
 
-    1. Header uniqueness (*expect_unique_header*).
-    2. Duplicate records (*duplicate_record_action*).
-    3. Duplicate sequences (*duplicate_sequence_action*).
-    4. Invalid residues (*invalid_sequence_action*).
-    5. Optional tee to *output_filename*.
+    1. Records with no sequence (*empty_sequence_action*).
+    2. Header uniqueness (*expect_unique_header*).
+    3. Duplicate records (*duplicate_record_action*).
+    4. Duplicate sequences (*duplicate_sequence_action*).
+    5. Invalid residues (*invalid_sequence_action*).
+    6. Optional tee to *output_filename*.
 
     Peak memory is ``O(number of records)`` for the auxiliary
     duplicate/uniqueness bookkeeping (16-byte digests -- never whole
@@ -772,6 +857,12 @@ def _stream_fasta(
         If ``True``, emit an opening message and, when the generator is
         exhausted, a summary of removed/converted counts.
 
+    empty_sequence_action : str, optional
+        What to do with a header that has no sequence after it:
+        ``'fail'`` (default) raises at that record, ``'remove'`` drops it
+        and ``'ignore'`` yields it with an empty sequence.  This is a
+        per-record decision, so it needs no extra memory.
+
     Yields
     ------
     tuple[str, str] or list[str]
@@ -782,7 +873,8 @@ def _stream_fasta(
     Raises
     ------
     ProtfastaException
-        On a duplicate header/record/sequence (for the relevant ``'fail'``
+        On a header with no sequence (for ``empty_sequence_action='fail'``),
+        a duplicate header/record/sequence (for the relevant ``'fail'``
         actions) or an invalid residue (for ``'fail'``/``'convert'``).
         Because parsing is lazy, these are raised mid-iteration, at the
         offending record.
@@ -816,6 +908,7 @@ def _stream_fasta(
 
     n_read = 0
     n_yielded = 0
+    n_empty_removed = 0
     n_dup_records_removed = 0
     n_dup_seqs_removed = 0
     n_invalid_removed = 0
@@ -836,13 +929,20 @@ def _stream_fasta(
         for header, seq in _iter_fasta_lines(in_fh, header_parser):
             n_read += 1
 
-            # 1. header uniqueness
+            # 1. a header with no sequence after it (raises under 'fail').
+            # Dealt with first, as in read_fasta, so a removed empty record
+            # never counts towards a duplicate header.
+            if not seq and not _keep_empty_record(header, empty_sequence_action):
+                n_empty_removed += 1
+                continue
+
+            # 2. header uniqueness
             if seen_headers is not None:
                 if header in seen_headers:
                     raise ProtfastaException('Found duplicate header (%s)' % (printable(header)))
                 seen_headers.add(header)
 
-            # 2. duplicate records (identical header AND sequence)
+            # 3. duplicate records (identical header AND sequence)
             if seen_records is not None:
                 key = _utilities._record_hash(header, seq)
                 if key in seen_records:
@@ -852,7 +952,7 @@ def _stream_fasta(
                     continue
                 seen_records.add(key)
 
-            # 3. duplicate sequences (identical sequence, any header)
+            # 4. duplicate sequences (identical sequence, any header)
             if seq_lookup is not None:
                 digest = _utilities._seq_hash(seq)
                 if digest in seq_lookup:
@@ -865,7 +965,7 @@ def _stream_fasta(
                     continue
                 seen_seqs.add(digest)
 
-            # 4. invalid-residue handling (per record)
+            # 5. invalid-residue handling (per record)
             if invalid_sequence_action == 'ignore':
                 pass
 
@@ -902,7 +1002,7 @@ def _stream_fasta(
 
                 # 'convert-ignore' keeps whatever is left
 
-            # 5. tee the sanitized record to disk (if requested)
+            # 6. tee the sanitized record to disk (if requested)
             if out_fh is not None:
                 out_fh.write(_format_record(header, seq))
 
@@ -913,6 +1013,8 @@ def _stream_fasta(
                 yield (header, seq)
 
         if verbose:
+            if empty_sequence_action == 'remove':
+                print('[INFO]: Removed %i of %i records with no sequence' % (n_empty_removed, n_read))
             if duplicate_record_action == 'remove':
                 print('[INFO]: Removed %i of %i due to duplicate records ' % (n_dup_records_removed, n_read))
             if duplicate_sequence_action == 'remove':

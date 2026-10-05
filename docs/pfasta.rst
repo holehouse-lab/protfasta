@@ -66,6 +66,13 @@ Command-line options
             ignore - keep all duplicate sequences
             remove - keep only the first occurrence of each sequence
 
+    --empty-sequence {fail,remove}            (default: fail)
+        How to deal with a header that has no sequence after it:
+            fail   - report the header and exit
+            remove - drop the record
+        ('ignore' is not offered, because a record with no sequence
+        cannot be written to the output FASTA file.)
+
     --invalid-sequence <mode>                (default: fail)
         How to deal with non-standard amino-acid characters. Available
         modes:

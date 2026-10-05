@@ -595,3 +595,32 @@ class TestCLIInvalidOption:
                 "--no-outputfile", "--silent",
                 monkeypatch=monkeypatch,
             )
+
+
+class TestCLIEmptySequence:
+    """--empty-sequence controls headers with no sequence after them."""
+
+    @pytest.fixture
+    def empty_file(self, tmp_path):
+        f = tmp_path / "empty_records.fasta"
+        f.write_text(">good\nACD\n>empty_one\n>also_good\nEFG\n")
+        return str(f)
+
+    def test_fails_by_default(self, empty_file, tmp_path, monkeypatch, capsys):
+        outfile = str(tmp_path / "out.fasta")
+        with pytest.raises(SystemExit) as exc:
+            _run_main(empty_file, "-o", outfile, "--silent", monkeypatch=monkeypatch)
+        assert exc.value.code != 0
+        out = capsys.readouterr().out
+        assert "[FATAL ERROR]" in out
+        assert "empty_one" in out
+
+    def test_remove(self, empty_file, tmp_path, monkeypatch):
+        outfile = str(tmp_path / "out.fasta")
+        _run_main(empty_file, "-o", outfile, "--empty-sequence", "remove", "--silent", monkeypatch=monkeypatch)
+        assert protfasta.read_fasta(outfile) == {"good": "ACD", "also_good": "EFG"}
+
+    def test_ignore_not_offered(self, empty_file, tmp_path, monkeypatch):
+        outfile = str(tmp_path / "out.fasta")
+        with pytest.raises(SystemExit):
+            _run_main(empty_file, "-o", outfile, "--empty-sequence", "ignore", "--silent", monkeypatch=monkeypatch)

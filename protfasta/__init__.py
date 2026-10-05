@@ -74,6 +74,7 @@ def read_fasta(
     output_filename: Optional[_io.PathLike] = None,
     correction_dictionary: Optional[dict[str, str]] = None,
     verbose: bool = False,
+    empty_sequence_action: str = 'fail',
 ) -> Union[dict[str, str], list[list[str]]]:
     """Read a FASTA file, sanitize sequences, and return a dict or list.
 
@@ -88,8 +89,9 @@ def read_fasta(
 
     Sanitization is applied in the following order:
 
-    1. File is read, custom headers are parsed, and header uniqueness is
-       checked (when *expect_unique_header* is ``True``).
+    1. File is read, custom headers are parsed, records with no
+       sequence are processed (*empty_sequence_action*), and header
+       uniqueness is checked (when *expect_unique_header* is ``True``).
     2. Duplicate records are processed (*duplicate_record_action*).
     3. Duplicate sequences are processed (*duplicate_sequence_action*).
     4. Invalid residues are processed (*invalid_sequence_action*).
@@ -195,6 +197,20 @@ def read_fasta(
         If ``True``, informational messages are printed to stdout
         during each processing step.  Default ``False``.
 
+    empty_sequence_action : str, optional
+        How to handle a header that has no sequence after it (for
+        example ``>a`` immediately followed by ``>b``).  Default
+        ``'fail'``.
+
+        * ``'fail'``    -- raise an exception naming the header.
+        * ``'remove'``  -- drop the record (the behaviour of protfasta
+          0.1.24 and earlier, which did this silently).
+        * ``'ignore'``  -- keep the record with an empty sequence
+          (cannot be combined with *output_filename*).
+
+        Empty records are dealt with before the header-uniqueness check,
+        so a removed record never counts as a duplicate header.
+
     Returns
     -------
     dict[str, str] or list[list[str]]
@@ -220,14 +236,15 @@ def read_fasta(
                      duplicate_sequence_action,
                      invalid_sequence_action, 
                      alignment,
-                     return_list, 
+                     return_list,
                      output_filename,
                      verbose,
-                     correction_dictionary)
-    
+                     correction_dictionary,
+                     empty_sequence_action)
+
 
     # the actual file i/o happens here
-    raw = _io.internal_parse_fasta_file(filename, expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose)
+    raw = _io.internal_parse_fasta_file(filename, expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose, empty_sequence_action=empty_sequence_action)
 
     # first deal with duplicate records. If every header is unique (which
     # internal_parse_fasta_file has just enforced) a duplicate record - same
@@ -301,6 +318,7 @@ def read_fasta_stream(
     correction_dictionary: Optional[dict[str, str]] = None,
     verbose: bool = False,
     silence_warnings: bool = False,
+    empty_sequence_action: str = 'fail',
 ) -> Iterator[Union[tuple[str, str], list[str]]]:
     """Stream a FASTA file record-by-record, sanitizing as it goes.
 
@@ -360,16 +378,17 @@ def read_fasta_stream(
     All argument validation is performed eagerly, at call time, so bad
     keyword combinations (and a *filename* that does not exist) raise
     immediately, before iteration begins.  Data-dependent errors -- a
-    duplicate header, a duplicate record or sequence under a ``'fail'``
-    action, or an invalid residue -- are inherent to streaming and are
+    header with no sequence, a duplicate header, a duplicate record or
+    sequence under a ``'fail'`` action, or an invalid residue -- are
+    inherent to streaming and are
     therefore raised **mid-iteration**, at the offending record, rather
     than up front.  The input file is opened before *output_filename* is
     created, so a failure to open the input never leaves an empty output
     file behind.
 
     The same processing steps as :func:`read_fasta` are applied, in the
-    same order (header uniqueness, duplicate records, duplicate sequences,
-    invalid residues).  See :func:`read_fasta` for a full description of
+    same order (records with no sequence, header uniqueness, duplicate
+    records, duplicate sequences, invalid residues).  See :func:`read_fasta` for a full description of
     each argument; the notes below cover only where streaming differs.
 
     Parameters
@@ -440,6 +459,13 @@ def read_fasta_stream(
         memory-growing duplicate/uniqueness check is enabled (see the
         Memory section above).  Default ``False``.
 
+    empty_sequence_action : str, optional
+        As in :func:`read_fasta`: ``'fail'`` (default) raises at a header
+        with no sequence after it, ``'remove'`` drops such records and
+        ``'ignore'`` yields them with an empty sequence (not allowed with
+        *output_filename*).  This is a per-record decision, so every
+        option streams without extra memory.
+
     Returns
     -------
     Iterator[tuple[str, str]] or Iterator[list[str]]
@@ -482,7 +508,8 @@ def read_fasta_stream(
                      return_list,
                      output_filename,
                      verbose,
-                     correction_dictionary)
+                     correction_dictionary,
+                     empty_sequence_action)
 
     # A missing input is an argument problem, not a data problem, so report
     # it now rather than at the first next() call. Anything else that can go
@@ -536,7 +563,8 @@ def read_fasta_stream(
                              return_list=return_list,
                              output_filename=output_filename,
                              correction_dictionary=correction_dictionary,
-                             verbose=verbose)
+                             verbose=verbose,
+                             empty_sequence_action=empty_sequence_action)
 
 
 

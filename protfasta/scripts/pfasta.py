@@ -163,6 +163,7 @@ def main() -> None:
     parser.add_argument("--duplicate-record", help="How to deal with duplicate records in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = fail)") 
     parser.add_argument("--duplicate-sequence", help="How to deal with duplicate sequences in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = ignore)") 
     parser.add_argument("--invalid-sequence", help="How to deal with invalid (non-standard) residues in the file. Available options\nare shown below and described (default = fail)\n\nignore : skip invalid residues \nfail   : throw exception on invalid sequences \nremove : remove sequences with invalid characters \nconvert-all : Convert B->N, U->C, X->G, Z->Q, '*'->'', ' '->'',\n             '-'->'' (and throw exception if remaining invalid characters exist)\nconvert-res : same as convert-all except the alignment gap character '-' is\n             preserved and treated as valid (i.e. the file is read as an alignment)\nconvert-all-ignore - same as convert-all except invalid characters left over are ignored.\nconvert-res-ignore - same as convert-res except invalid characters left over are ignored.   \nconvert-all-remove - same as convert-all except sequences with invalid characters are removed.\nconvert-res-remove - same as convert-res except sequences with invalid characters are removed.   ")
+    parser.add_argument("--empty-sequence", help="How to deal with a header that has no sequence after it.\nOptions are ['fail', 'remove'] (default = fail)")
     parser.add_argument("--number-lines", help="Number of residues per line in the output FASTA file (default = 60)")
     parser.add_argument("--shortest-seq", help="Minimum length filter; sequences shorter than or equal to this length are discarded")
     parser.add_argument("--longest-seq", help="Maximum length filter; sequences longer than or equal to this length are discarded")
@@ -222,6 +223,14 @@ def main() -> None:
         duplicate_sequence = validate(args.duplicate_sequence, ['ignore','fail','remove'])
     else:
         duplicate_sequence = 'ignore'
+
+    # 'ignore' (keep the record with an empty sequence) is not offered here,
+    # because pfasta's job is to write a FASTA file and a record with no
+    # sequence cannot be written
+    if args.empty_sequence:
+        empty_sequence = validate(args.empty_sequence, ['fail','remove'])
+    else:
+        empty_sequence = 'fail'
 
     # The -all and -res variants both use protfasta's built-in conversion
     # table; they differ only in whether the file is read as an alignment.
@@ -311,7 +320,8 @@ def main() -> None:
                                     invalid_sequence_action=invalid_sequence,
                                     alignment=alignment,
                                     return_list=True,
-                                    verbose=verb))
+                                    verbose=verb,
+                                    empty_sequence_action=empty_sequence))
     except ProtfastaException as e:
         # a data problem in the input is a normal failure mode for a
         # command-line tool, so report it cleanly rather than with a traceback

@@ -68,7 +68,8 @@ the whole file up front:
        exist, or an ``output_filename`` that is the input file, raises
        immediately, before any record is produced. *Data-dependent*
        failures, however, are inherent to streaming and are raised
-       **mid-iteration**, at the offending record: a duplicate header, a
+       **mid-iteration**, at the offending record: a header with no
+       sequence under ``empty_sequence_action='fail'``, a duplicate header, a
        duplicate record or sequence under a ``'fail'`` action, an invalid
        residue under ``invalid_sequence_action='fail'`` / ``'convert'``,
        or a ``header_parser`` that raises on (or does not return a string

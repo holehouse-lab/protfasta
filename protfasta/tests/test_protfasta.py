@@ -38,6 +38,7 @@ Organized into test classes by functional area:
 - TestBatchedValidation: batched validation/conversion finds every offender
 - TestWriteFastaAtomicity: write_fasta never leaves a partial file
 - TestStreamRobustness: file-handling edge cases when streaming
+- TestEmptySequenceAction: headers with no sequence (empty_sequence_action)
 - TestReadFastaStreamParity: read_fasta and read_fasta_stream agree
 """
 
@@ -603,6 +604,7 @@ class TestCheckInputs:
             output_filename=None,
             verbose=False,
             correction_dictionary=None,
+            empty_sequence_action='fail',
         )
         defaults.update(kwargs)
         _io.check_inputs(**defaults)
@@ -2264,8 +2266,11 @@ class TestParserEdgeCases:
         result = _io._parse_fasta_all(['junk\n', 'more junk\n', '>h1\n', 'ACD\n'])
         assert result == [['h1', 'ACD']]
 
-    def test_header_without_sequence_skipped(self):
-        result = _io._parse_fasta_all(['>empty\n', '>h1\n', 'ACD\n', '>trailing_empty\n'])
+    def test_header_without_sequence_skipped_with_remove(self):
+        # empty records are only dropped when asked for (the default is to fail;
+        # see TestEmptySequenceAction)
+        result = _io._parse_fasta_all(['>empty\n', '>h1\n', 'ACD\n', '>trailing_empty\n'],
+                                      empty_sequence_action='remove')
         assert result == [['h1', 'ACD']]
 
     def test_lowercase_uppercased(self):
@@ -2654,3 +2659,111 @@ class TestReadFastaStreamParity:
                 continue
             streamed = list(protfasta.read_fasta_stream(fn, silence_warnings=True, **kwargs))
             assert streamed == ref, fn
+
+
+# ---------------------------------------------------------------------------
+# TestEmptySequenceAction
+# ---------------------------------------------------------------------------
+class TestEmptySequenceAction:
+    """Headers with no sequence after them (empty_sequence_action).
+
+    These used to be dropped silently by the parser. They now fail by
+    default, and can be removed or kept explicitly.
+    """
+
+    # a header with no sequence in the middle of the file and at the very end
+    CONTENT = '>good\nACD\n>empty_middle\n>also_good\nEFG\n>empty_end\n'
+
+    @pytest.fixture
+    def empty_file(self, tmp_path):
+        f = tmp_path / 'empty_records.fasta'
+        f.write_text(self.CONTENT)
+        return str(f)
+
+    def test_parser_yields_empty_records(self):
+        records = list(_io._iter_fasta_lines(self.CONTENT.splitlines()))
+        assert records == [('good', 'ACD'), ('empty_middle', ''), ('also_good', 'EFG'), ('empty_end', '')]
+
+    def test_read_fasta_fails_by_default(self, empty_file):
+        with pytest.raises(ProtfastaException, match='empty_middle'):
+            protfasta.read_fasta(empty_file)
+
+    def test_trailing_empty_record_fails(self, tmp_path):
+        f = tmp_path / 'trailing_empty.fasta'
+        f.write_text('>good\nACD\n>empty_end\n')
+        with pytest.raises(ProtfastaException, match='empty_end'):
+            protfasta.read_fasta(str(f))
+
+    def test_read_fasta_remove(self, empty_file):
+        assert protfasta.read_fasta(empty_file, empty_sequence_action='remove') == {'good': 'ACD', 'also_good': 'EFG'}
+
+    def test_read_fasta_ignore(self, empty_file):
+        result = protfasta.read_fasta(empty_file, empty_sequence_action='ignore', return_list=True)
+        assert result == [['good', 'ACD'], ['empty_middle', ''], ['also_good', 'EFG'], ['empty_end', '']]
+
+    def test_read_fasta_remove_verbose_reports_count(self, empty_file, capsys):
+        protfasta.read_fasta(empty_file, empty_sequence_action='remove', verbose=True)
+        assert 'Removed 2 records with no sequence' in capsys.readouterr().out
+
+    def test_remove_happens_before_unique_header_check(self, tmp_path):
+        # an empty record that shares a header with a real one is dropped
+        # before the uniqueness check, exactly as the old parser did
+        f = tmp_path / 'empty_then_same_header.fasta'
+        f.write_text('>a\n>a\nACD\n')
+        assert protfasta.read_fasta(str(f), empty_sequence_action='remove') == {'a': 'ACD'}
+
+        # ...whereas a kept empty record does count as a duplicate header
+        with pytest.raises(ProtfastaException, match='duplicate header'):
+            protfasta.read_fasta(str(f), empty_sequence_action='ignore')
+
+    def test_stream_fails_at_the_empty_record(self, empty_file):
+        stream = protfasta.read_fasta_stream(empty_file)
+        assert next(stream) == ('good', 'ACD')
+        with pytest.raises(ProtfastaException, match='empty_middle'):
+            next(stream)
+
+    def test_stream_remove(self, empty_file):
+        records = list(protfasta.read_fasta_stream(empty_file, empty_sequence_action='remove'))
+        assert records == [('good', 'ACD'), ('also_good', 'EFG')]
+
+    def test_stream_ignore(self, empty_file):
+        records = list(protfasta.read_fasta_stream(empty_file, empty_sequence_action='ignore'))
+        assert records == [('good', 'ACD'), ('empty_middle', ''), ('also_good', 'EFG'), ('empty_end', '')]
+
+    def test_stream_remove_verbose_reports_count(self, empty_file, capsys):
+        list(protfasta.read_fasta_stream(empty_file, empty_sequence_action='remove', verbose=True))
+        assert 'Removed 2 of 4 records with no sequence' in capsys.readouterr().out
+
+    @pytest.mark.parametrize('action', ['fail', 'remove', 'ignore'])
+    def test_read_fasta_and_stream_agree(self, empty_file, action):
+        try:
+            ref = protfasta.read_fasta(empty_file, empty_sequence_action=action, return_list=True)
+        except ProtfastaException:
+            with pytest.raises(ProtfastaException):
+                list(protfasta.read_fasta_stream(empty_file, empty_sequence_action=action, return_list=True))
+            return
+        streamed = list(protfasta.read_fasta_stream(empty_file, empty_sequence_action=action, return_list=True))
+        assert streamed == ref
+
+    def test_files_without_empty_records_unaffected(self):
+        assert protfasta.read_fasta(SIMPLE_FILE) == protfasta.read_fasta(SIMPLE_FILE, empty_sequence_action='remove')
+
+    @pytest.mark.parametrize('bad_action', ['skip', 'FAIL', None, ''])
+    def test_invalid_action_rejected(self, empty_file, bad_action):
+        with pytest.raises(ProtfastaException, match='empty_sequence_action'):
+            protfasta.read_fasta(empty_file, empty_sequence_action=bad_action)
+        with pytest.raises(ProtfastaException, match='empty_sequence_action'):
+            protfasta.read_fasta_stream(empty_file, empty_sequence_action=bad_action)
+
+    def test_ignore_with_output_filename_rejected_up_front(self, empty_file, tmp_path):
+        outfile = tmp_path / 'out.fasta'
+        with pytest.raises(ProtfastaException, match='output_filename'):
+            protfasta.read_fasta(empty_file, empty_sequence_action='ignore', output_filename=str(outfile))
+        with pytest.raises(ProtfastaException, match='output_filename'):
+            protfasta.read_fasta_stream(empty_file, empty_sequence_action='ignore', output_filename=str(outfile))
+        assert not outfile.exists()
+
+    def test_remove_with_output_filename_round_trips(self, empty_file, tmp_path):
+        outfile = tmp_path / 'out.fasta'
+        protfasta.read_fasta(empty_file, empty_sequence_action='remove', output_filename=str(outfile))
+        assert protfasta.read_fasta(str(outfile)) == {'good': 'ACD', 'also_good': 'EFG'}

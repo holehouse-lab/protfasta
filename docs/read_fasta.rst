@@ -42,8 +42,9 @@ Processing pipeline
 Sanitization happens in a fixed order:
 
     1. File is streamed from disk, headers are parsed with
-       ``header_parser`` (if provided), and header uniqueness is
-       checked (when ``expect_unique_header=True``).
+       ``header_parser`` (if provided), records with no sequence are
+       processed according to ``empty_sequence_action``, and header
+       uniqueness is checked (when ``expect_unique_header=True``).
     2. Duplicate **records** are processed according to
        ``duplicate_record_action``.
     3. Duplicate **sequences** are processed according to
@@ -63,7 +64,8 @@ read.
 Both ``filename`` and ``output_filename`` accept either a string or a
 :class:`pathlib.Path`. Anything that goes wrong - a bad keyword, a
 missing or unreadable file, an output file that cannot be created, an
-invalid residue under ``invalid_sequence_action='fail'``, a
+invalid residue under ``invalid_sequence_action='fail'``, a header with
+no sequence under ``empty_sequence_action='fail'``, a
 ``header_parser`` that raises on (or returns something other than a
 string for) a real header - is raised as a ``ProtfastaException``, so
 callers only need to catch one exception type.
@@ -88,8 +90,17 @@ The same rules apply to :func:`protfasta.read_fasta` and
        (spaces are removed by the conversion table below; tabs are not).
     *  Unix (``\n``), Windows (``\r\n``) and old Mac (``\r``) line
        endings are all accepted.
-    *  Anything before the first header is ignored, and a header with no
-       sequence lines after it is skipped.
+    *  Anything before the first header is ignored.
+    *  A header with no sequence lines after it (for example ``>a``
+       followed directly by ``>b``, or a header on the last line of the
+       file) is handled by ``empty_sequence_action``: ``'fail'`` (the
+       default) raises a ``ProtfastaException`` naming the header,
+       ``'remove'`` drops the record, and ``'ignore'`` keeps it with an
+       empty sequence (this cannot be combined with ``output_filename``,
+       since an empty sequence cannot be written to a FASTA file).
+       Before version 0.1.25 such records were always dropped silently;
+       pass ``empty_sequence_action='remove'`` to get that behaviour
+       back.
 
 
 Header parsing

@@ -2,10 +2,12 @@
 
 All notable changes to **protfasta** are recorded here, newest first. Version numbers come from git tags via versioningit, so a `pip install protfasta` gets whichever tagged release is current.
 
-* **0.1.25** (October 2026) - Headers with no sequence are no longer dropped silently.
+* **0.1.26** (October 2026) - Headers with no sequence are no longer dropped silently.
 	* **Behavior change:** a header with no sequence after it (for example `>a` immediately followed by `>b`, or a header on the last line of the file) used to be skipped without any message by both `read_fasta(...)` and `read_fasta_stream(...)`, so records could go missing unnoticed. Such records now raise a `ProtfastaException` naming the header by default. The new `empty_sequence_action` keyword controls this: `'fail'` (default), `'remove'` (drop the record - the old behaviour, now reported when `verbose=True`) or `'ignore'` (keep the record with an empty sequence; not allowed together with `output_filename`, since an empty sequence cannot be written). Empty records are handled before the header-uniqueness check, so `'remove'` gives exactly the results of earlier versions. Pass `empty_sequence_action='remove'` to restore the old behavior.
 	* `pfasta` has a matching `--empty-sequence {fail,remove}` option (default `fail`).
 
+* **0.1.25** (Oct 2026) - Identical to 0.1.26, we just forgot to update some docs...
+	
 * **0.1.24** (September 2026) - Bug fixes, and a performance and memory pass over the whole pipeline.
 	* Fixed silent data loss when a FASTA file starts with a UTF-8 byte-order mark (which Windows editors add routinely). The BOM hid the first `>` so the first record was dropped without any error. Files are now always decoded as UTF-8 (rather than whatever the platform locale happens to be) with the BOM stripped.
 	* Fixed a crash on files containing bytes that are not valid UTF-8 (e.g., a Latin-1 accent in a header), which raised an unhandled `UnicodeDecodeError`. Such bytes are now carried through and written back out unchanged, so a read/write round trip is lossless; a stray byte inside a sequence is reported as an invalid residue like any other. Error messages that quote such data are guaranteed to be printable.

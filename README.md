@@ -12,7 +12,7 @@ protfasta
 
 
 
-## Release 0.1.24 (August 2026)
+## Release 0.1.26 (October 2026)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.

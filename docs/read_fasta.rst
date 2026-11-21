@@ -41,20 +41,37 @@ Processing pipeline
 
 Sanitization happens in a fixed order:
 
-    1. File is streamed from disk, headers are parsed with
-       ``header_parser`` (if provided), records with no sequence are
-       processed according to ``empty_sequence_action``, and header
-       uniqueness is checked (when ``expect_unique_header=True``).
+    1. File is streamed from disk, anything before the first header is
+       processed according to ``leading_content_action``, headers are
+       parsed with ``header_parser`` (if provided), records with no
+       sequence are processed according to ``empty_sequence_action``,
+       and header uniqueness is checked (when
+       ``expect_unique_header=True``).
     2. Duplicate **records** are processed according to
        ``duplicate_record_action``.
     3. Duplicate **sequences** are processed according to
        ``duplicate_sequence_action``.
     4. **Invalid residues** are processed according to
-       ``invalid_sequence_action``.
+       ``invalid_sequence_action``. If conversion leaves a sequence
+       with nothing in it (``***``, say), that record is then handled
+       by ``empty_sequence_action`` like any other empty one.
     5. The sanitized set is optionally written to
        ``output_filename``.
     6. The result is returned as a ``dict`` (default) or a ``list``
        of ``[header, sequence]`` pairs (when ``return_list=True``).
+
+Two consequences of that order are worth knowing:
+
+    *  The duplicate checks run on sequences as they are in the file,
+       *before* any conversion. Two sequences that only become identical
+       once converted (``ACB`` and ``ACN``, with ``B`` -> ``N``) are not
+       duplicates as far as steps 2 and 3 are concerned, and both come
+       back. If that matters, run the output through ``read_fasta``
+       again.
+    *  With ``expect_unique_header=False`` and the default dictionary
+       return, records that share a header overwrite one another (the
+       last one wins) and ``read_fasta`` emits a warning saying how many
+       were lost. Pass ``return_list=True`` to keep them all.
 
 Incompatible option combinations (for example,
 ``expect_unique_header=True`` together with
@@ -65,7 +82,8 @@ Both ``filename`` and ``output_filename`` accept either a string or a
 :class:`pathlib.Path`. Anything that goes wrong - a bad keyword, a
 missing or unreadable file, an output file that cannot be created, an
 invalid residue under ``invalid_sequence_action='fail'``, a header with
-no sequence under ``empty_sequence_action='fail'``, a
+no sequence under ``empty_sequence_action='fail'``, content before the
+first header under ``leading_content_action='fail'``, a
 ``header_parser`` that raises on (or returns something other than a
 string for) a real header - is raised as a ``ProtfastaException``, so
 callers only need to catch one exception type.
@@ -83,14 +101,26 @@ The same rules apply to :func:`protfasta.read_fasta` and
        whitespace - is treated as sequence data.
     *  All following lines up to the next header are the sequence. They
        are concatenated, so sequences may be wrapped at any width, and
-       the result is upper-cased.
+       the letters ``a``-``z`` are upper-cased. Nothing else is touched:
+       a non-ASCII character is never case-mapped into a valid residue
+       (Python's ``upper()`` would turn ``ß`` into ``SS``), so it shows
+       up as the invalid residue it is.
     *  Trailing whitespace is stripped from every line, and blank or
        whitespace-only lines are skipped. Whitespace *inside* a sequence
        line is kept, and is then an invalid residue like any other
        (spaces are removed by the conversion table below; tabs are not).
     *  Unix (``\n``), Windows (``\r\n``) and old Mac (``\r``) line
        endings are all accepted.
-    *  Anything before the first header is ignored.
+    *  Blank lines before the first header are fine. Anything else up
+       there is handled by ``leading_content_action``: ``'fail'`` (the
+       default) raises a ``ProtfastaException`` quoting the offending
+       line, and ``'remove'`` throws it away. This is what catches a
+       file that isn't really FASTA - gzipped, UTF-16, or just missing
+       its first header - which has no line starting with ``>`` and so
+       would otherwise read as zero records without a word. It also
+       catches a first header that's picked up a leading space. Before
+       version 0.1.27 this content was always dropped silently; pass
+       ``leading_content_action='remove'`` to get that behaviour back.
     *  A header with no sequence lines after it (for example ``>a``
        followed directly by ``>b``, or a header on the last line of the
        file) is handled by ``empty_sequence_action``: ``'fail'`` (the
@@ -159,6 +189,19 @@ its values strings, and multi-character keys are allowed):
     *  ``-`` -> ``''`` (removed; preserved if ``alignment=True``)
     *  ``' '`` -> ``''`` (spaces removed; other whitespace, such as a
        tab, is not in the table)
+
+Two things to know about a custom ``correction_dictionary``:
+
+    *  All the replacements happen in a single pass, so the output of
+       one is never picked up by another: ``{'B': 'X', 'X': 'G'}`` turns
+       ``B`` into ``X``, not ``G``, and the order of the dictionary
+       doesn't matter. Where two keys match at the same spot (``X`` and
+       ``XX``), the longer one wins. Before version 0.1.27 a dictionary
+       with a multi-character key was applied one key after another
+       instead, so its replacements could chain.
+    *  With ``alignment=True`` it can't contain a key with ``-`` in it.
+       Preserving gaps and converting them are contradictory, so that
+       combination raises rather than picking one.
 
 
 Large files

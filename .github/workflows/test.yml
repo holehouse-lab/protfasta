@@ -35,6 +35,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          # the version comes from the git tags (versioningit), and the
+          # default shallow checkout does not fetch any
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6

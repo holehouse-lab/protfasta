@@ -12,7 +12,7 @@ protfasta
 
 
 
-## Release 0.1.26 (October 2026)
+## Release 0.1.27 (November 2026)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -55,11 +55,12 @@ For files that are too large to fit in memory, `read_fasta_stream()` applies the
 
 ## Running tests
 
-To run tests on your environment, clone the source code and from protfasta root 
+To run tests on your environment, clone the source code, install it (the version file the package imports is generated at install time, so a bare clone won't import), and run the suite from the protfasta root
 
 ```bash
-cd protfasta/tests
-pytest --verbose
+pip install .
+pip install pytest
+pytest --pyargs protfasta.tests --verbose
 ```
 
 To run the test suite over all supported Python versions we use [tox](https://tox.wiki/en/4.58.0/);  from the protfasta source root directory simply run

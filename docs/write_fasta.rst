@@ -59,7 +59,8 @@ Keyword arguments
        Values from ``1`` to ``4`` are clamped to ``5``. Set to ``0`` (or
        any negative value), ``None`` or ``False`` to write each sequence
        on a single line. A numerical string such as ``'60'`` is accepted
-       and cast.
+       and cast. ``True``, and a float that isn't a whole number, aren't
+       line lengths and are refused.
 
     *  ``append_to_fasta`` (default ``False``) - when ``True``, new
        entries are appended to an existing file rather than
@@ -80,14 +81,22 @@ lower-level error escape, so a single ``except`` clause is enough:
     *  A header or sequence is not a string.
     *  A header or sequence contains a line break, which would be read
        back as a record boundary and silently corrupt the file.
-    *  A sequence is empty or consists only of whitespace - such a
-       record would vanish when the file is read back, so it is never
-       written.
+    *  A sequence is empty or consists only of whitespace - that would
+       leave a header with no sequence, which ``read_fasta`` refuses by
+       default, so it's never written.
+    *  A line of the wrapped sequence would start with ``>`` (it'd be
+       read back as a header, splitting the record in two) or end in
+       whitespace (which is stripped on the way back in, shortening the
+       sequence). This can only happen with a sequence that hasn't been
+       validated.
+    *  A header or sequence contains a character that can't be encoded
+       as UTF-8 (a lone surrogate that didn't come from a file).
     *  ``linelength`` cannot be interpreted as an integer. Note that a
        numerical string (``'60'``) *is* accepted and cast.
     *  ``append_to_fasta`` is not a boolean.
-    *  ``filename`` cannot be opened for writing (for example, its
-       directory does not exist).
+    *  ``filename`` isn't a string or path (an integer would be taken
+       for a file descriptor), or cannot be opened for writing (for
+       example, its directory does not exist).
 
 All of the data checks run **before** the file is opened, so a bad entry
 never leaves a truncated file behind and never partially appends to an

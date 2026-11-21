@@ -75,6 +75,7 @@ def read_fasta(
     correction_dictionary: Optional[dict[str, str]] = None,
     verbose: bool = False,
     empty_sequence_action: str = 'fail',
+    leading_content_action: str = 'fail',
 ) -> Union[dict[str, str], list[list[str]]]:
     """Read a FASTA file, sanitize sequences, and return a dict or list.
 
@@ -89,12 +90,16 @@ def read_fasta(
 
     Sanitization is applied in the following order:
 
-    1. File is read, custom headers are parsed, records with no
-       sequence are processed (*empty_sequence_action*), and header
-       uniqueness is checked (when *expect_unique_header* is ``True``).
+    1. File is read, anything before the first header is processed
+       (*leading_content_action*), custom headers are parsed, records
+       with no sequence are processed (*empty_sequence_action*), and
+       header uniqueness is checked (when *expect_unique_header* is
+       ``True``).
     2. Duplicate records are processed (*duplicate_record_action*).
     3. Duplicate sequences are processed (*duplicate_sequence_action*).
-    4. Invalid residues are processed (*invalid_sequence_action*).
+    4. Invalid residues are processed (*invalid_sequence_action*).  A
+       sequence that conversion leaves empty is then handled by
+       *empty_sequence_action*.
     5. Final sequences are optionally written to *output_filename*.
     6. A dictionary or list is returned to the caller.
 
@@ -116,8 +121,10 @@ def read_fasta(
         If ``True`` (default), an exception is raised when a duplicate
         header is encountered during parsing.  Set to ``False`` when
         the file is known to contain duplicate headers -- in that case
-        *return_list* should typically be ``True`` as well so that no
-        entries are silently lost via dictionary-key overwriting.
+        *return_list* should typically be ``True`` as well: a dictionary
+        holds one sequence per header, so records that share a header
+        overwrite one another (the last wins), and a warning is emitted
+        saying how many were lost.
 
     header_parser : callable or None, optional
         A function ``(str) -> str`` applied to every raw header before
@@ -170,7 +177,8 @@ def read_fasta(
     alignment : bool, optional
         If ``True``, dash (``'-'``) characters are treated as valid gap
         characters and are neither flagged as invalid nor converted.
-        Default ``False``.
+        Cannot be combined with a *correction_dictionary* that has
+        ``'-'`` in one of its keys.  Default ``False``.
 
     return_list : bool, optional
         If ``True``, return a list of ``[header, sequence]`` pairs
@@ -191,7 +199,11 @@ def read_fasta(
 
         A custom dictionary **replaces** the built-in table entirely
         (an empty dictionary is treated the same as ``None``).  Keys
-        must be non-empty strings and values must be strings.
+        must be non-empty strings and values must be strings.  Every
+        replacement is made in a single pass, so the output of one is
+        never converted by another and dictionary order does not
+        matter; where two keys match at the same position the longer
+        one wins.
 
     verbose : bool, optional
         If ``True``, informational messages are printed to stdout
@@ -210,6 +222,18 @@ def read_fasta(
 
         Empty records are dealt with before the header-uniqueness check,
         so a removed record never counts as a duplicate header.
+
+    leading_content_action : str, optional
+        How to handle anything other than blank lines that comes before
+        the first header.  A FASTA file should start with a ``>`` header
+        line, so this usually means the file isn't what it claims to be
+        (gzipped, UTF-16, not FASTA at all) or that the first header has
+        gone missing or picked up a leading space.  Default ``'fail'``.
+
+        * ``'fail'``    -- raise an exception quoting the offending line.
+        * ``'remove'``  -- discard everything before the first header
+          (the behaviour of protfasta 0.1.26 and earlier, which did this
+          silently).  A file with no header at all then gives no records.
 
     Returns
     -------
@@ -240,11 +264,12 @@ def read_fasta(
                      output_filename,
                      verbose,
                      correction_dictionary,
-                     empty_sequence_action)
+                     empty_sequence_action,
+                     leading_content_action)
 
 
     # the actual file i/o happens here
-    raw = _io.internal_parse_fasta_file(filename, expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose, empty_sequence_action=empty_sequence_action)
+    raw = _io.internal_parse_fasta_file(filename, expect_unique_header=expect_unique_header, header_parser=header_parser, verbose=verbose, empty_sequence_action=empty_sequence_action, leading_content_action=leading_content_action)
 
     # first deal with duplicate records. If every header is unique (which
     # internal_parse_fasta_file has just enforced) a duplicate record - same
@@ -286,7 +311,11 @@ def read_fasta(
                                                           alignment=alignment,
                                                           verbose=verbose, 
                                                           correction_dictionary=correction_dictionary)
-        
+
+    # conversion deletes characters, so it can leave a sequence with nothing
+    # in it; that is an empty record like any other
+    if invalid_sequence_action.startswith('convert'):
+        updated = _protfasta._deal_with_sequences_emptied_by_conversion(updated, empty_sequence_action, verbose)
 
     # If we wanted to write the final set of sequences we're going to use...
     # (tested against None rather than for truthiness so that an empty
@@ -298,7 +327,21 @@ def read_fasta(
     if return_list is True:
         return updated
 
-    return _utilities.convert_list_to_dictionary(updated, verbose)
+    sequences = _utilities.convert_list_to_dictionary(updated, verbose)
+
+    # A dictionary holds one sequence per header, so records that share a
+    # header (only possible with expect_unique_header=False) overwrite one
+    # another on the way in. Never let that pass without a word.
+    n_overwritten = len(updated) - len(sequences)
+    if n_overwritten > 0:
+        warnings.warn(
+            "read_fasta(): %i of %i records share a header with a later record "
+            "and were overwritten in the returned dictionary. Pass "
+            "return_list=True to keep every record." % (n_overwritten, len(updated)),
+            stacklevel=2,
+        )
+
+    return sequences
 
 
 
@@ -319,6 +362,7 @@ def read_fasta_stream(
     verbose: bool = False,
     silence_warnings: bool = False,
     empty_sequence_action: str = 'fail',
+    leading_content_action: str = 'fail',
 ) -> Iterator[Union[tuple[str, str], list[str]]]:
     """Stream a FASTA file record-by-record, sanitizing as it goes.
 
@@ -375,9 +419,13 @@ def read_fasta_stream(
     Whenever a memory-growing check is enabled a one-time warning is emitted
     (suppress it with ``silence_warnings=True``).
 
-    All argument validation is performed eagerly, at call time, so bad
+    Argument validation is performed eagerly, at call time, so bad
     keyword combinations (and a *filename* that does not exist) raise
-    immediately, before iteration begins.  Data-dependent errors -- a
+    immediately, before iteration begins.  The two exceptions are a
+    *filename* that exists but cannot be opened (a directory, say) and
+    an *output_filename* that cannot be created, which are only found
+    out at the first ``next()``.  Data-dependent errors -- content
+    before the first header, a
     header with no sequence, a duplicate header, a duplicate record or
     sequence under a ``'fail'`` action, or an invalid residue -- are
     inherent to streaming and are
@@ -466,6 +514,12 @@ def read_fasta_stream(
         *output_filename*).  This is a per-record decision, so every
         option streams without extra memory.
 
+    leading_content_action : str, optional
+        As in :func:`read_fasta`: ``'fail'`` (default) raises on anything
+        other than blank lines before the first header, and ``'remove'``
+        discards it.  Under ``'fail'`` the error is raised at the first
+        ``next()``, before any record is yielded.
+
     Returns
     -------
     Iterator[tuple[str, str]] or Iterator[list[str]]
@@ -509,7 +563,13 @@ def read_fasta_stream(
                      output_filename,
                      verbose,
                      correction_dictionary,
-                     empty_sequence_action)
+                     empty_sequence_action,
+                     leading_content_action)
+
+    # (the one keyword read_fasta does not share, so check_inputs does not
+    # cover it; without this, silence_warnings='no' would silence the warning)
+    if not isinstance(silence_warnings, bool):
+        raise ProtfastaException("keyword 'silence_warnings' must be a boolean")
 
     # A missing input is an argument problem, not a data problem, so report
     # it now rather than at the first next() call. Anything else that can go
@@ -564,7 +624,8 @@ def read_fasta_stream(
                              output_filename=output_filename,
                              correction_dictionary=correction_dictionary,
                              verbose=verbose,
-                             empty_sequence_action=empty_sequence_action)
+                             empty_sequence_action=empty_sequence_action,
+                             leading_content_action=leading_content_action)
 
 
 
@@ -586,9 +647,12 @@ def write_fasta(
     entry raises without creating, truncating, or appending to
     *filename*.  Every header and sequence must be a string, every
     sequence must contain something other than whitespace (an empty or
-    blank sequence would vanish when the file is read back), and neither
-    may contain a line break (a break inside either would be read back as
-    a record boundary, silently corrupting the file).  Output is written
+    blank sequence would be read back as a header with no sequence), and
+    neither may contain a line break (a break inside either would be
+    read back as a record boundary, silently corrupting the file).  A
+    sequence that has not been validated is also refused if wrapping it
+    would put a ``>`` at the start of a line (read back as a header) or
+    whitespace at the end of one (stripped on the way back in).  Output is written
     as UTF-8; headers that came from a non-UTF-8 file via
     :func:`read_fasta` are written back out with their original bytes.
 
@@ -608,7 +672,8 @@ def write_fasta(
         ``60`` (the UniProt convention).  Values from ``1`` to ``4`` are
         clamped to ``5``.  Set to ``0`` (or any negative value),
         ``None``, or ``False`` to write each sequence on a single line.
-        A numerical string such as ``'60'`` is accepted and cast.
+        A numerical string such as ``'60'`` is accepted and cast;
+        ``True`` and a float with a fractional part are refused.
 
     append_to_fasta : bool, optional
         If ``True``, new entries are appended to *filename* if it
@@ -626,11 +691,17 @@ def write_fasta(
     ProtfastaException
         If *fasta_data* is neither a dictionary nor a list, if a list
         element is not a two-item list or tuple, if a header or sequence
-        is not a string or contains a line break, if a sequence is
-        empty or only whitespace, if *linelength* is not an integer (or
-        ``0``/``None``/``False``), if *append_to_fasta* is not a
-        boolean, or if *filename* cannot be opened for writing.
+        is not a string, contains a line break or cannot be encoded as
+        UTF-8, if a sequence is empty or only whitespace, if a line of
+        a wrapped sequence would start with ``>`` or end in whitespace,
+        if *linelength* is not an integer (or ``0``/``None``/``False``),
+        if *append_to_fasta* is not a boolean, or if *filename* is not
+        a path or cannot be opened for writing.
     """
+
+    # a path, not (say) an integer, which open() would take to be a file
+    # descriptor and happily write to
+    _io.check_filename(filename)
 
     # This part of code means we can pass either a dictionary or a list of lists
     # in for write_fasta to deal with. Either way, `records` iterates over
@@ -662,6 +733,12 @@ def write_fasta(
         linelength = False
 
     else:
+        # True is not a line length, and a float with a fractional part (or
+        # an infinite one) has no integer equivalent - refuse them rather
+        # than quietly writing 5 residues per line, or rounding down
+        if linelength is True or (isinstance(linelength, float) and not linelength.is_integer()):
+            raise ProtfastaException("keyword 'linelength' must be an integer, or one of 0/None/False (got %s)" % (repr(linelength)))
+
         # cast linelength to an integer here as a soft type checking, and
         # if it's shorter than 5 then reset to 5
         try:
@@ -675,27 +752,12 @@ def write_fasta(
             linelength = 5
 
     # Validate every entry before touching the filesystem, so a bad entry
-    # never leaves a truncated file (or a half-appended one) behind. Headers
-    # and sequences must be strings (anything else either crashes inside the
-    # formatting below or, worse, gets str()-ed into the file), sequences
-    # must contain something other than whitespace (the reader skips blank
-    # lines, so a blank sequence would leave a header with no sequence, and
-    # the record would vanish on the way back in), and neither may contain a
-    # line break, which would be read back as a record boundary. isspace()
-    # stops at the first non-whitespace character, so on a real sequence it
-    # costs nothing.
-    printable = _utilities._printable
+    # never leaves a truncated file (or a half-appended one) behind. The
+    # checks themselves live in _check_record_is_writable, which the
+    # streaming tee shares.
+    check_record_is_writable = _io._check_record_is_writable
     for header, seq in records:
-        if not isinstance(header, str):
-            raise ProtfastaException('Header [%s] is not a string (got %s)' % (header, type(header).__name__))
-        if '\n' in header or '\r' in header:
-            raise ProtfastaException('Header [%s] contains a line break' % (printable(header)))
-        if not isinstance(seq, str):
-            raise ProtfastaException('Sequence associated with [%s] is not a string (got %s)' % (printable(header), type(seq).__name__))
-        if not seq or seq.isspace():
-            raise ProtfastaException('Sequence associated with [%s] is empty (or only whitespace)' % (printable(header)))
-        if '\n' in seq or '\r' in seq:
-            raise ProtfastaException('Sequence associated with [%s] contains a line break' % (printable(header)))
+        check_record_is_writable(header, seq, linelength)
 
     # If append_to_fasta is False the file is truncated/created; otherwise
     # new entries are added to the end of an existing file.

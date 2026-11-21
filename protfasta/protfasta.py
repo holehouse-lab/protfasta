@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Optional, Union
 
 from . import utilities as _utilities
+from . import io as _io
 from .protfasta_exceptions import ProtfastaException
 
     
@@ -85,7 +86,7 @@ def _deal_with_invalid_sequences(
         invalid residues are found (or remain after conversion).
     """
 
-    # sequencescode on an invalid sequence
+    # fail on the first invalid sequence
     if invalid_sequence_action == 'fail':
         _utilities.fail_on_invalid_sequences(raw, alignment)
         return raw
@@ -108,7 +109,7 @@ def _deal_with_invalid_sequences(
         cd = correction_dictionary if isinstance(correction_dictionary, dict) else None
         (updated, count) = _utilities.convert_invalid_sequences(raw, cd, alignment)
         if verbose:
-            print('[INFO]: Converted %i sequences to valid sequences'%(count))
+            print('[INFO]: Converted invalid residues in %i sequences' % (count))
 
         # note we then rescan in case there were still characters we couldn't deal with
         if invalid_sequence_action == 'convert':
@@ -234,3 +235,57 @@ def _deal_with_duplicate_sequences(
 
     return raw
 
+
+####################################################################################################
+#
+#
+def _deal_with_sequences_emptied_by_conversion(
+    raw: list[list[str]],
+    empty_sequence_action: str = 'fail',
+    verbose: bool = False,
+) -> list[list[str]]:
+    """Apply *empty_sequence_action* to sequences that conversion left empty.
+
+    The conversion table deletes some characters outright (``'*'``,
+    ``'-'``, ``' '``), so a sequence made up of nothing else comes out of
+    the invalid-residue step as an empty string.  That is the same thing
+    as a header with no sequence, so it gets the same treatment: an error
+    by default, or dropped/kept if the caller asked for that.
+
+    Parameters
+    ----------
+    raw : list[list[str]]
+        ``[header, sequence]`` pairs, after residue conversion.
+
+    empty_sequence_action : str, optional
+        ``'fail'`` (default) raises on the first empty sequence,
+        ``'remove'`` drops such records and ``'ignore'`` keeps them.
+
+    verbose : bool, optional
+        If ``True``, print how many records were removed.  Default
+        ``False``.
+
+    Returns
+    -------
+    list[list[str]]
+        The records that survive.  The input list is returned as it is
+        when nothing had to be dropped.
+
+    Raises
+    ------
+    ProtfastaException
+        If *empty_sequence_action* is ``'fail'`` and a sequence is empty.
+    """
+    # the common case: nothing was emptied, so nothing needs rebuilding
+    if all([entry[1] for entry in raw]):
+        return raw
+
+    updated = []
+    for entry in raw:
+        if entry[1] or _io._keep_empty_record(entry[0], empty_sequence_action, emptied_by_conversion=True):
+            updated.append(entry)
+
+    if verbose and empty_sequence_action == 'remove':
+        print('[INFO]: Removed %i of %i records left with no sequence after conversion' % (len(raw) - len(updated), len(raw)))
+
+    return updated

@@ -152,7 +152,11 @@ def _run_mode(mode: str, filename: str) -> dict[str, Any]:
 def _spawn_worker(mode: str, filename: str) -> dict[str, Any]:
     """Run one measurement in a fresh interpreter and return its JSON result."""
     cmd = [sys.executable, os.path.abspath(__file__), '--worker', mode, filename]
-    env = dict(os.environ, PYTHONPATH=REPO_ROOT)
+    # The repository goes at the front of PYTHONPATH (so the worker measures
+    # this checkout); whatever was already on it is kept behind.
+    inherited = os.environ.get('PYTHONPATH')
+    python_path = REPO_ROOT if not inherited else os.pathsep.join([REPO_ROOT, inherited])
+    env = dict(os.environ, PYTHONPATH=python_path)
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if proc.returncode != 0:
         raise RuntimeError('worker failed (%s on %s):\n%s' % (mode, filename, proc.stderr))
@@ -164,11 +168,21 @@ def _ensure_file(data_dir: str, n_records: int, seed: int) -> str:
     from generate_fasta import generate_fasta
 
     os.makedirs(data_dir, exist_ok=True)
-    filename = os.path.join(data_dir, 'synthetic_%d.fasta' % (n_records,))
+
+    # The seed is part of the name: a file cached for one seed must not be
+    # handed back for another.
+    filename = os.path.join(data_dir, 'synthetic_%d_seed%d.fasta' % (n_records, seed))
     if not os.path.exists(filename):
         print('[generate] %s (%d records) ...' % (filename, n_records), end=' ', flush=True, file=sys.stderr)
         t0 = time.perf_counter()
-        generate_fasta(filename, n_records, seed=seed)
+
+        # Generate under a temporary name and rename once complete, so an
+        # interrupted run never leaves a truncated file to be picked up (and
+        # benchmarked) as if it were whole.
+        partial_filename = filename + '.partial'
+        generate_fasta(partial_filename, n_records, seed=seed)
+        os.replace(partial_filename, filename)
+
         print('%.1f s, %.1f MB' % (time.perf_counter() - t0, os.path.getsize(filename) / 1e6), file=sys.stderr)
     return filename
 
@@ -307,6 +321,9 @@ def main() -> None:
     parser.add_argument('--seed', type=int, default=0, help='seed for the synthetic files (default 0)')
     parser.add_argument('--worker', nargs=2, metavar=('MODE', 'FILE'), help=argparse.SUPPRESS)
     args = parser.parse_args()
+
+    if args.repeats < 1:
+        parser.error('--repeats must be at least 1')
 
     if args.worker:
         mode, filename = args.worker

@@ -41,7 +41,7 @@ Every (size, mode) measurement runs in a fresh subprocess so peak memory is not 
 
 ## Reference results
 
-Apple M3 Max, macOS 26.5, Python 3.12.13, protfasta 0.1.24 (September 2026). `read_fasta` bytes/record is the retained size of the result: roughly the sequence itself (~420 residues) plus ~400 bytes of Python object overhead (header string, sequence string, dictionary entry).
+Apple M3 Max, macOS 26.5, Python 3.12.13, protfasta 0.1.24 (September 2026; measured on the development tree just before it was tagged, which is why the version line below reads `0.1.23+4`). `read_fasta` bytes/record is the retained size of the result: roughly the sequence itself (~420 residues) plus ~400 bytes of Python object overhead (header string, sequence string, dictionary entry).
 
 - protfasta 0.1.23+4.g0ccb7f5.dirty
 - Apple M3 Max

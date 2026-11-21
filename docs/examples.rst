@@ -118,17 +118,27 @@ silently dropping the record.
 **Example 9 - Fast read with no sanity checking**
 
 By default **protfasta** performs a lot of sanity checking. When you
-already trust the input file, you can turn it all off:
+already trust the input file, you can turn the per-record checks off.
+Ask for a list while you're at it: with headers no longer required to be
+unique, a dictionary would keep only the last record for each header
+(you'd get a warning, but the records would still be gone).
 
 .. code-block:: python
 
     import protfasta
 
+    # a list of [header, sequence] pairs, in file order
     sequences = protfasta.read_fasta('inputfile.fasta',
                                      invalid_sequence_action='ignore',
                                      duplicate_record_action='ignore',
                                      duplicate_sequence_action='ignore',
-                                     expect_unique_header=False)
+                                     expect_unique_header=False,
+                                     return_list=True)
+
+The two structural checks stay on, since neither costs anything worth
+saving: a header with no sequence, or content before the first header,
+still raises (see ``empty_sequence_action`` and
+``leading_content_action``).
 
 
 ``read_fasta_stream`` examples (large files)

@@ -68,7 +68,10 @@ the whole file up front:
        exist, or an ``output_filename`` that is the input file, raises
        immediately, before any record is produced. *Data-dependent*
        failures, however, are inherent to streaming and are raised
-       **mid-iteration**, at the offending record: a header with no
+       **mid-iteration**, at the offending record: content before the
+       first header under ``leading_content_action='fail'`` (raised at
+       the first ``next()``, before any record is yielded and before
+       ``output_filename`` is created), a header with no
        sequence under ``empty_sequence_action='fail'``, a duplicate header, a
        duplicate record or sequence under a ``'fail'`` action, an invalid
        residue under ``invalid_sequence_action='fail'`` / ``'convert'``,
@@ -76,6 +79,11 @@ the whole file up front:
        for) a header. Records yielded before the failure have already
        been handed to you, and written to ``output_filename`` if one was
        given.
+    *  **Writing with output_filename.** Every record goes through the
+       same checks ``write_fasta`` applies before it's written, so the
+       stream never produces a file ``write_fasta`` would have refused
+       (a header that a ``header_parser`` has put a line break into,
+       for example, raises at that record).
     *  **verbose output.** Per-total summaries (for example, "removed 5
        of 100 duplicate records") can only be reported once the
        generator has been fully consumed, so they are emitted at

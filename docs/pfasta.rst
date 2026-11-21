@@ -45,7 +45,9 @@ Command-line options
 
     -o <output filename>                    (default: output.fasta)
         Output FASTA file. It is created (or overwritten) in the current
-        directory if no path is given.
+        directory if no path is given. It can't be the input file:
+        pfasta refuses rather than overwrite its own input with the
+        filtered result.
 
     --non-unique-header
         If set, multiple FASTA records are allowed to share the same header.
@@ -72,6 +74,14 @@ Command-line options
             remove - drop the record
         ('ignore' is not offered, because a record with no sequence
         cannot be written to the output FASTA file.)
+
+    --leading-content {fail,remove}           (default: fail)
+        How to deal with anything other than blank lines before the
+        first header:
+            fail   - report the offending line and exit
+            remove - throw it away
+        A file with no '>' header at all (gzipped, say, or not FASTA)
+        fails here, rather than being read as zero sequences.
 
     --invalid-sequence <mode>                (default: fail)
         How to deal with non-standard amino-acid characters. Available
@@ -124,7 +134,9 @@ Command-line options
     --longest-seq <int>                      (default: none)
         Maximum sequence length to include. Sequences longer than or
         equal to this length are discarded. If both --longest-seq
-        and --shortest-seq are given, --longest-seq must be larger.
+        and --shortest-seq are given, --longest-seq must be larger by
+        at least 2 (both bounds are exclusive, so nothing fits between
+        3 and 4, say).
 
     --random-subsample <int>                 (default: none)
         Randomly sub-sample this many sequences from the final set
@@ -134,10 +146,17 @@ Command-line options
         fewer sequences than requested, all of them are written, again
         in random order.
 
+    --random-seed <int>                      (default: none)
+        Seed for --random-subsample. The same seed on the same input
+        draws the same sub-sample, in the same order, every time.
+        Without it you get a different sub-sample on every run.
+
     --print-statistics
         Print length statistics (count, 25th / 50th / 75th percentile,
-        longest, shortest) for the final set of sequences. Nothing is
-        printed if --silent is also given.
+        longest, shortest) for the final set of sequences. Percentiles
+        are interpolated between the two nearest lengths, so the median
+        of 10 and 20 is 15.0. Nothing is printed if --silent is also
+        given.
 
     --no-outputfile
         Do not write an output FASTA file. Useful together with
@@ -169,10 +188,11 @@ fatal error)::
            -o clean.fasta input.fasta
 
 Keep sequences that are longer than 50 and shorter than 500 residues and
-randomly keep 1000 of them::
+randomly keep 1000 of them (the seed means you'll get the same 1000 next
+time)::
 
     pfasta --shortest-seq 50 --longest-seq 500 \
-           --random-subsample 1000 \
+           --random-subsample 1000 --random-seed 42 \
            -o subset.fasta input.fasta
 
 Just print length statistics, without writing a file::
@@ -186,10 +206,12 @@ Exit status
 If the input cannot be read or sanitized under the requested options (a
 duplicate header, a duplicate record under ``--duplicate-record fail``, an
 invalid residue under ``--invalid-sequence fail``, an output path that
-cannot be created, and so on), or an option has an invalid value (an
-unknown ``--invalid-sequence`` mode, a non-numeric length), **pfasta**
-prints a single ``[FATAL ERROR]`` line describing the problem and exits with
-status ``1``. No output file is written in that case.
+cannot be created or that is the input file, and so on), or an option
+has an invalid value (an unknown ``--invalid-sequence`` mode, a
+non-numeric length), **pfasta** prints a ``[FATAL ERROR]`` message
+describing the problem (for a bad record, the record follows on the next
+lines) and exits with status ``1``. No output file is written in that
+case.
 
 An unrecognised flag, or a missing input filename, is reported by the
 argument parser on stderr with a short usage summary, and **pfasta** exits

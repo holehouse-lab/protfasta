@@ -9,6 +9,7 @@ when the *protfasta* package is installed.
 from __future__ import annotations
 
 import random
+import statistics
 import sys
 from os import path
 from typing import Callable, NoReturn, Optional, cast
@@ -19,6 +20,17 @@ from argparse import RawTextHelpFormatter
 from protfasta import __version__ as VERSION_MAJ
 from protfasta.protfasta_exceptions import ProtfastaException
 
+
+# Where the sanitized sequences go when no -o is given.
+DEFAULT_OUTPUT_FILENAME = 'output.fasta'
+
+# statistics.quantiles() needs at least two data points to interpolate between.
+MIN_SEQUENCES_FOR_QUARTILES = 2
+
+# Both length filters are exclusive (shortest < length < longest), so the
+# bounds have to be at least this far apart for any whole-number length to
+# fit between them.
+MIN_GAP_BETWEEN_LENGTH_BOUNDS = 2
 
 ## ===================================================================================================
 ##                              Main Script - hold onto your hat!
@@ -125,13 +137,22 @@ def print_statistical_summary(data: list[list[str]]) -> None:
         return
 
     length_list.sort()
-    q25 = length_list[int(len(length_list)*0.25)]
-    q50 = length_list[int(len(length_list)*0.50)]
-    q75 = length_list[int(len(length_list)*0.75)]
+
+    # Quartiles by linear interpolation between the two nearest lengths (the
+    # 'inclusive' method, which treats the data as the whole population - it
+    # is, here - and is what numpy.percentile does by default). Indexing the
+    # sorted list at int(n * q) instead is biased upwards: it reports the
+    # larger of two lengths as their median.
+    q50 = statistics.median(length_list)
+    if len(length_list) < MIN_SEQUENCES_FOR_QUARTILES:
+        q25 = q75 = q50
+    else:
+        (q25, _, q75) = statistics.quantiles(length_list, n=4, method='inclusive')
+
     print('[STATS]: Total number of sequences : %i ' % (len(length_list)))
-    print('[STATS]: 25th percentile length    : %i ' % (q25))
-    print('[STATS]: Median length             : %i ' % (q50))
-    print('[STATS]: 75th percentile length    : %i ' % (q75))
+    print('[STATS]: 25th percentile length    : %.1f ' % (q25))
+    print('[STATS]: Median length             : %.1f ' % (q50))
+    print('[STATS]: 75th percentile length    : %.1f ' % (q75))
     print('[STATS]: Longest sequence          : %i ' % (length_list[-1]))
     print('[STATS]: Shortest sequence         : %i ' % (length_list[0]))
 
@@ -164,13 +185,15 @@ def main() -> None:
     parser.add_argument("--duplicate-sequence", help="How to deal with duplicate sequences in the file.\nOptions are ['ignore', 'fail', 'remove'] (default = ignore)") 
     parser.add_argument("--invalid-sequence", help="How to deal with invalid (non-standard) residues in the file. Available options\nare shown below and described (default = fail)\n\nignore : skip invalid residues \nfail   : throw exception on invalid sequences \nremove : remove sequences with invalid characters \nconvert-all : Convert B->N, U->C, X->G, Z->Q, '*'->'', ' '->'',\n             '-'->'' (and throw exception if remaining invalid characters exist)\nconvert-res : same as convert-all except the alignment gap character '-' is\n             preserved and treated as valid (i.e. the file is read as an alignment)\nconvert-all-ignore - same as convert-all except invalid characters left over are ignored.\nconvert-res-ignore - same as convert-res except invalid characters left over are ignored.   \nconvert-all-remove - same as convert-all except sequences with invalid characters are removed.\nconvert-res-remove - same as convert-res except sequences with invalid characters are removed.   ")
     parser.add_argument("--empty-sequence", help="How to deal with a header that has no sequence after it.\nOptions are ['fail', 'remove'] (default = fail)")
+    parser.add_argument("--leading-content", help="How to deal with anything other than blank lines before the first header.\nOptions are ['fail', 'remove'] (default = fail)")
     parser.add_argument("--number-lines", help="Number of residues per line in the output FASTA file (default = 60)")
     parser.add_argument("--shortest-seq", help="Minimum length filter; sequences shorter than or equal to this length are discarded")
     parser.add_argument("--longest-seq", help="Maximum length filter; sequences longer than or equal to this length are discarded")
     parser.add_argument("--random-subsample", help="Randomly sub-sample this many sequences from the final set")
+    parser.add_argument("--random-seed", help="Seed for --random-subsample, so the same sub-sample can be drawn again.\nBy default a different sub-sample is drawn on every run")
     parser.add_argument("--print-statistics", help="Print information on the sequences",action='store_true') 
     parser.add_argument("--no-outputfile", help="Prevents pfasta from writing an output file ",action='store_true') 
-    parser.add_argument("--silent", help="Generate no output at all to STDOUT", action='store_true') 
+    parser.add_argument("--silent", help="Generate no output to STDOUT other than a [FATAL ERROR] message if something goes wrong", action='store_true') 
     parser.add_argument("--remove-comma-from-header", help="Flag that, if set, commas in FASTA headers will be replaced with ';' characters. Useful if you have code that parses FASTA headers as part of a CSV file", action='store_true') 
     parser.add_argument("--version", help="Flag that, if set, means we just print the version and exit.", action='store_true') 
 
@@ -200,11 +223,19 @@ def main() -> None:
         exit_error('File %s does not exist'%(args.filename))
         
 
-    # sanitize and set  outfile
-    if args.o:
+    # sanitize and set outfile (compared against None, so that -o '' is
+    # reported as an unwritable path rather than quietly becoming the default)
+    if args.o is not None:
         outfile = args.o
     else:
-        outfile = 'output.fasta'
+        outfile = DEFAULT_OUTPUT_FILENAME
+
+    # Writing the output truncates it, and what gets written is the filtered
+    # set of sequences - so if the output is the input, the input's other
+    # records are gone for good. The files themselves are compared, not their
+    # names, so a symlink or a differently-capitalised name is caught too.
+    if not args.no_outputfile and protfasta.io._same_file(outfile, args.filename):
+        exit_error('Output file [%s] is the input file, and writing it would overwrite the input. Pass a different name with -o' % (outfile))
 
 
     # sanitize and set uniuqe header
@@ -214,12 +245,12 @@ def main() -> None:
         expect_unique_header = True
 
     # sanitize duplicate re
-    if args.duplicate_record:
+    if args.duplicate_record is not None:
         duplicate_record = validate(args.duplicate_record, ['ignore','fail','remove'])
     else:
         duplicate_record = 'fail'
 
-    if args.duplicate_sequence:
+    if args.duplicate_sequence is not None:
         duplicate_sequence = validate(args.duplicate_sequence, ['ignore','fail','remove'])
     else:
         duplicate_sequence = 'ignore'
@@ -227,10 +258,15 @@ def main() -> None:
     # 'ignore' (keep the record with an empty sequence) is not offered here,
     # because pfasta's job is to write a FASTA file and a record with no
     # sequence cannot be written
-    if args.empty_sequence:
+    if args.empty_sequence is not None:
         empty_sequence = validate(args.empty_sequence, ['fail','remove'])
     else:
         empty_sequence = 'fail'
+
+    if args.leading_content is not None:
+        leading_content = validate(args.leading_content, ['fail','remove'])
+    else:
+        leading_content = 'fail'
 
     # The -all and -res variants both use protfasta's built-in conversion
     # table; they differ only in whether the file is read as an alignment.
@@ -238,7 +274,7 @@ def main() -> None:
     # characters. convert-res: '-' is preserved as a gap character and
     # treated as valid, which is what alignment=True does.
     alignment = False
-    if args.invalid_sequence:
+    if args.invalid_sequence is not None:
         invalid_sequence = validate(args.invalid_sequence, ['ignore',
                                                             'fail',
                                                             'remove',
@@ -286,11 +322,18 @@ def main() -> None:
     else:
         random_subsample = None
 
-    # equal bounds are rejected too: a sequence would have to be both longer
-    # and shorter than the same length to survive, so nothing ever could
+    random_seed: Optional[int]
+    if args.random_seed is not None:
+        random_seed = validate_int(args.random_seed, 0, '--random-seed')
+    else:
+        random_seed = None
+
+    # equal and adjacent bounds are rejected too: both are exclusive, so with
+    # (say) --shortest-seq 3 --longest-seq 4 a sequence would have to be longer
+    # than 3 and shorter than 4 to survive, and nothing ever could
     if longest is not None and shortest is not None:
-        if longest <= shortest:
-            exit_error('--longest-seq must be larger than --shortest-seq')
+        if longest - shortest < MIN_GAP_BETWEEN_LENGTH_BOUNDS:
+            exit_error('--longest-seq must be larger than --shortest-seq by at least %i (both bounds are exclusive, so nothing could pass otherwise)' % (MIN_GAP_BETWEEN_LENGTH_BOUNDS))
 
     hp: Optional[Callable[[str], str]]
     if args.remove_comma_from_header:
@@ -321,7 +364,8 @@ def main() -> None:
                                     alignment=alignment,
                                     return_list=True,
                                     verbose=verb,
-                                    empty_sequence_action=empty_sequence))
+                                    empty_sequence_action=empty_sequence,
+                                    leading_content_action=leading_content))
     except ProtfastaException as e:
         # a data problem in the input is a normal failure mode for a
         # command-line tool, so report it cleanly rather than with a traceback
@@ -345,7 +389,11 @@ def main() -> None:
             stdout('[INFO]: Cannot subsample as the requested number to subsample (%i) is more than\n        the total number of sequences (%i). Using all sequences'%(random_subsample, len(data)), silent)
         else:
             stdout('[INFO]: Subsampling %i sequences from the complete dataset (%i)'%(random_subsample, len(data)), silent)
-        data = random.sample(data, min(random_subsample, len(data)))
+        # a generator of our own (rather than the module-level one) so that
+        # a seed makes the sub-sample reproducible; with no seed it is seeded
+        # from the operating system, as before
+        random_generator = random.Random(random_seed)
+        data = random_generator.sample(data, min(random_subsample, len(data)))
 
     # nothing left (the filters removed everything, or a subsample of 0 was
     # requested): say so and stop rather than writing an empty file

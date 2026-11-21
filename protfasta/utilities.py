@@ -18,6 +18,7 @@ Be kind to each other.
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Callable, Mapping, Optional, Union
 
 from .protfasta_exceptions import ProtfastaException
@@ -133,6 +134,33 @@ def _printable(s: str) -> str:
         Printable text.
     """
     return s.encode('utf-8', 'backslashreplace').decode('utf-8')
+
+
+####################################################################################################
+#
+#
+def _describe_character(character: str) -> str:
+    """Return a single character in a form a reader can actually see.
+
+    Used when an error message has to name an invalid residue.  An
+    ordinary visible character is returned as it is.  One that would be
+    invisible or unprintable in a message (a space, a tab, a NUL, a lone
+    surrogate standing in for a non-UTF-8 byte) is returned as its quoted
+    escape instead, e.g. ``'\\t'``.
+
+    Parameters
+    ----------
+    character : str
+        The character to describe.
+
+    Returns
+    -------
+    str
+        The character itself, or its ``repr()``.
+    """
+    if character.isprintable() and not character.isspace():
+        return character
+    return repr(character)
 
 
 # Number of records handled per batch by the dataset-level validation and
@@ -316,11 +344,15 @@ def _make_converter(
     correction_dictionary : dict[str, str] or None, optional
         Mapping of characters (or multi-character strings) to their
         replacements.  ``None`` or an empty dictionary selects the
-        built-in table.
+        built-in table.  Every replacement is made in a single pass, so
+        the output of one replacement is never fed into another, and
+        where two keys match at the same position the longer one wins.
 
     alignment : bool, optional
         When ``True`` the built-in table preserves dashes (``'-'``) as
-        gap characters.  Ignored when a custom dictionary is supplied.
+        gap characters.  Has no effect on a custom dictionary (the
+        public readers refuse one that converts ``'-'`` when
+        ``alignment=True``; see :func:`protfasta.io.check_inputs`).
         Default ``False``.
 
     Returns
@@ -342,9 +374,9 @@ def _make_converter(
         _validate_correction_dictionary(correction_dictionary)
 
         # str.translate can only map single characters (its table is keyed
-        # by code point); a dictionary with any multi-character key falls
-        # back to sequential str.replace calls, applied in dictionary order
-        # as it always has been.
+        # by code point); a dictionary with any multi-character key goes
+        # through a regular expression instead (see below). Both make every
+        # replacement in a single pass.
         if all(len(k) == 1 for k in correction_dictionary):
             table = {ord(k): v for k, v in correction_dictionary.items()}
         else:
@@ -362,14 +394,27 @@ def _make_converter(
             return seq
 
     else:
-        replacements = tuple(correction_dictionary.items()) if correction_dictionary else ()
+        # One left-to-right pass that replaces each match with its value and
+        # never looks at a replacement again - the semantics translate() gives
+        # the single-character case, so {'B': 'X', 'X': 'G'} turns a B into an
+        # X (not a G) whether or not the dictionary also happens to hold a
+        # multi-character key. (Up to 0.1.26 this was a chain of str.replace
+        # calls in dictionary order, which fed the output of one key into the
+        # next.) Where two keys match at the same position the longer one
+        # wins, which is what listing the longer alternatives first achieves;
+        # sorted() is stable, so keys of equal length stay in dictionary order.
+        assert correction_dictionary is not None
+        replacements = dict(correction_dictionary)
+        longest_first = sorted(replacements, key=len, reverse=True)
+        pattern = re.compile('|'.join([re.escape(key) for key in longest_first]))
+
+        def replace_match(match: re.Match[str]) -> str:
+            return replacements[match.group()]
 
         def convert(seq: str) -> str:
             for k in keys:
                 if k in seq:
-                    for old, new in replacements:
-                        seq = seq.replace(old, new)
-                    return seq
+                    return pattern.sub(replace_match, seq)
             return seq
 
     return convert
@@ -621,7 +666,7 @@ def fail_on_invalid_sequences(
         for entry in batch:
             (status, info) = check_sequence_is_valid(entry[1], alignment)
             if status is not True:
-                raise ProtfastaException('Failed on invalid amino acid: %s\nTaken from entry...\n>%s\n%s\n' % (_printable(str(info)), _printable(entry[0]), _printable(entry[1])))
+                raise ProtfastaException('Failed on invalid amino acid: %s\nTaken from entry...\n>%s\n%s\n' % (_describe_character(str(info)), _printable(entry[0]), _printable(entry[1])))
 
 
 ####################################################################################################
@@ -748,7 +793,7 @@ def fail_on_duplicates(dataset: list[list[str]]) -> None:
     seen: dict[str, Union[str, set[str]]] = {}
     for entry in dataset:
         if _seen_record(seen, entry[0], entry[1]):
-            raise ProtfastaException('Found duplicate entries of the following record\n:>%s\n%s' % (_printable(entry[0]), _printable(entry[1])))
+            raise ProtfastaException('Found duplicate entries of the following record:\n>%s\n%s' % (_printable(entry[0]), _printable(entry[1])))
 
 
 ####################################################################################################

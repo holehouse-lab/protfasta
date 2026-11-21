@@ -1,7 +1,7 @@
 Installation
 ===============
 
-**protfasta** requires Python 3.9 or higher and has no dependencies beyond
+**protfasta** requires Python 3.10 or higher and has no dependencies beyond
 the Python standard library. It has been tested on Linux and macOS. It should also work on Windows but we haven't tested it there yet.
 
 **protfasta** can be downloaded and installed directly from PyPI using **pip**:

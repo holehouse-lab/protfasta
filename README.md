@@ -12,7 +12,7 @@ protfasta
 
 
 
-## Release 0.1.27 (November 2026)
+## Release 0.1.28 (November 2026)
 
 ## Overview
 protfasta - a robust parser for protein-based FASTA files.
@@ -69,7 +69,7 @@ To run the test suite over all supported Python versions we use [tox](https://to
 tox	
 ```
 
-And the tests should run across Python envs 3.9 to 3.15 (experimental).
+And the tests should run across Python envs 3.10 to 3.15.
 
 
 

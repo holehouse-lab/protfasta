@@ -2,6 +2,10 @@
 
 All notable changes to **protfasta** are recorded here, newest first. Version numbers come from git tags via versioningit, so a `pip install protfasta` gets whichever tagged release is current.
 
+* **0.1.28** (November 2026) - Dropped Python 3.9; Python 3.15 is now fully supported.
+	* **protfasta** now requires Python 3.10 or higher. Python 3.9 reached end-of-life in October 2025 and GitHub's current runner image (Ubuntu 26.04) no longer provides it, so we can't test against it any more. No code changed in this release, so `pip` on Python 3.9 will keep installing 0.1.27, which behaves identically.
+	* Python 3.15 is out of pre-release, so its test job now has to pass like every other one (it used to be allowed to fail), and it's listed in the package classifiers.
+
 * **0.1.27** (November 2026) - Content before the first header is no longer dropped silently, plus the fixes from a full code review.
 	* **Behavior change:** anything before the first `>` header used to be thrown away without any message by both `read_fasta(...)` and `read_fasta_stream(...)`. That meant a file with no recognisable header at all - a gzipped FASTA file, a UTF-16 one, a file that simply isn't FASTA - read "successfully" as zero records, and a first header that had picked up a leading space (` >a`) took its whole record with it. Any non-blank line before the first header now raises a `ProtfastaException` quoting the line number and the (truncated) line by default. The new `leading_content_action` keyword controls this: `'fail'` (default) or `'remove'` (discard it - the old behaviour, now reported when `verbose=True`). Blank lines before the first header are still fine, and an empty file still gives no records. Pass `leading_content_action='remove'` to restore the old behavior.
 	* When streaming, the check runs at the first `next()`, before `output_filename` is opened, so an input that turns out not to be FASTA never creates or truncates the output file.

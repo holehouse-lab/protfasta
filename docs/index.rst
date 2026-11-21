@@ -37,7 +37,7 @@ Bugs and help
 
 If you find any bugs or have feature requests please raise an issue on our `GitHub page <https://github.com/holehouse-lab/protfasta/>`_. The test suite, which is run in continuous integration on every supported Python version, covers both the Python API and the **pfasta** command-line tool.
 
-A note: **protfasta** requires Python 3.9 or higher, and is routinely tested against Python 3.9 through 3.14. We also run the test suite against the current Python 3.15 pre-release, although that build is allowed to fail without blocking a release.
+A note: **protfasta** requires Python 3.10 or higher, and is routinely tested against Python 3.10 through 3.15.
 
 The full release history, including what changed in each version, is in `CHANGELOG.md <https://github.com/holehouse-lab/protfasta/blob/master/CHANGELOG.md>`_ in the GitHub repository.
 

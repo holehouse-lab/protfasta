@@ -3,5 +3,5 @@ include CHANGELOG.md
 include ARCHITECTURE.md
 include MANIFEST.in
 
-graft protfasta
+graft src/protfasta
 global-exclude *.py[cod] __pycache__ *.so

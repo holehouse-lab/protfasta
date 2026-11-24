@@ -21,10 +21,11 @@ _ROOT = os.path.abspath(os.path.dirname(__file__))
 # exist there. In that environment (and only there) the version is computed
 # from git on the fly instead. Both paths are anchored on this file's
 # location rather than the working directory so the check does not depend on
-# where sphinx happens to be run from.
+# where sphinx happens to be run from. The package lives in src/protfasta, so
+# the project root (where pyproject.toml and .git are) is two levels up.
 if os.getenv("READTHEDOCS") == "True" and not os.path.isfile(os.path.join(_ROOT, '_version.py')):
     import versioningit
-    __version__ = versioningit.get_version(os.path.dirname(_ROOT))
+    __version__ = versioningit.get_version(os.path.dirname(os.path.dirname(_ROOT)))
 else:
     from ._version import __version__
 

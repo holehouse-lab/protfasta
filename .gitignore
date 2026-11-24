@@ -9,7 +9,7 @@ __pycache__/
 # C extensions
 *.so
 
-protfasta/_version.py
+src/protfasta/_version.py
 
 # Distribution / packaging
 .Python

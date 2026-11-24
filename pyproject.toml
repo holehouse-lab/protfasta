@@ -54,7 +54,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 namespaces = true
-where = ["."]
+where = ["src"]
 include = ["protfasta", "protfasta.*"]  # Discover all sub-packages inside the main package
 
 [tool.setuptools.package-data]
@@ -83,4 +83,4 @@ match = ["*"]
 default-tag = "0.0.0"
 
 [tool.versioningit.write]
-file = "protfasta/_version.py"
+file = "src/protfasta/_version.py"

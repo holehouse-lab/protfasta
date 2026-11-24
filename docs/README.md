@@ -18,4 +18,4 @@ or call Sphinx directly, which is what the Read the Docs build does:
 python -m sphinx -b html . _build/html
 ```
 
-Adding `-W` turns warnings into errors, which is a useful check before a release. The compiled pages end up in `_build/html`; open `_build/html/index.html` in a browser to view them. The API sections are generated from the docstrings in the `protfasta` package, and `conf.py` puts the repository root on the path, so the build documents the checked-out code rather than any installed copy.
+Adding `-W` turns warnings into errors, which is a useful check before a release. The compiled pages end up in `_build/html`; open `_build/html/index.html` in a browser to view them. The API sections are generated from the docstrings in the `protfasta` package, and `conf.py` puts the repository's `src/` directory on the path, so the build documents the checked-out code rather than any installed copy.

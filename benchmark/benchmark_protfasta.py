@@ -59,9 +59,11 @@ from typing import Any, Callable, Optional, cast
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
+# the package lives in <repo>/src/protfasta
+SOURCE_ROOT = os.path.join(REPO_ROOT, 'src')
 
 # Make sure the worker subprocesses import the checkout, not an installed copy.
-sys.path.insert(0, REPO_ROOT)
+sys.path.insert(0, SOURCE_ROOT)
 sys.path.insert(0, HERE)
 
 MODES: list[str] = ['read_fasta', 'read_fasta-nocheck', 'read_fasta-dedup', 'stream', 'stream-unique', 'stream-dedup']
@@ -152,10 +154,10 @@ def _run_mode(mode: str, filename: str) -> dict[str, Any]:
 def _spawn_worker(mode: str, filename: str) -> dict[str, Any]:
     """Run one measurement in a fresh interpreter and return its JSON result."""
     cmd = [sys.executable, os.path.abspath(__file__), '--worker', mode, filename]
-    # The repository goes at the front of PYTHONPATH (so the worker measures
+    # The checkout's src/ goes at the front of PYTHONPATH (so the worker measures
     # this checkout); whatever was already on it is kept behind.
     inherited = os.environ.get('PYTHONPATH')
-    python_path = REPO_ROOT if not inherited else os.pathsep.join([REPO_ROOT, inherited])
+    python_path = SOURCE_ROOT if not inherited else os.pathsep.join([SOURCE_ROOT, inherited])
     env = dict(os.environ, PYTHONPATH=python_path)
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if proc.returncode != 0:
